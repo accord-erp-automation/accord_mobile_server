@@ -1,0 +1,4 @@
+.env
+.core.log
+.core.pid
+data/

@@ -23,6 +23,7 @@ var (
 type ERPClient interface {
 	SearchSuppliers(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]erpnext.Supplier, error)
 	GetSupplier(ctx context.Context, baseURL, apiKey, apiSecret, id string) (erpnext.Supplier, error)
+	SearchWarehouses(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]erpnext.Warehouse, error)
 	SearchSupplierItems(ctx context.Context, baseURL, apiKey, apiSecret, supplier, query string, limit int) ([]erpnext.Item, error)
 	ListPendingPurchaseReceipts(ctx context.Context, baseURL, apiKey, apiSecret string, limit int) ([]erpnext.PurchaseReceiptDraft, error)
 	ListSupplierPurchaseReceipts(ctx context.Context, baseURL, apiKey, apiSecret, supplier string, limit int) ([]erpnext.PurchaseReceiptDraft, error)
@@ -275,25 +276,35 @@ func (a *ERPAuthenticator) SupplierItems(ctx context.Context, principal Principa
 		return nil, err
 	}
 
+	warehouse, err := a.resolveWarehouse(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	result := make([]SupplierItem, 0, len(items))
 	for _, item := range items {
 		result = append(result, SupplierItem{
 			Code:      item.Code,
 			Name:      item.Name,
 			UOM:       item.UOM,
-			Warehouse: a.defaultWarehouse,
+			Warehouse: warehouse,
 		})
 	}
 	return result, nil
 }
 
 func (a *ERPAuthenticator) CreateDispatch(ctx context.Context, principal Principal, itemCode string, qty float64) (DispatchRecord, error) {
+	warehouse, err := a.resolveWarehouse(ctx)
+	if err != nil {
+		return DispatchRecord{}, err
+	}
+
 	draft, err := a.erp.CreateDraftPurchaseReceipt(ctx, a.baseURL, a.apiKey, a.apiSecret, erpnext.CreatePurchaseReceiptInput{
 		Supplier:      principal.Ref,
 		SupplierPhone: principal.Phone,
 		ItemCode:      strings.TrimSpace(itemCode),
 		Qty:           qty,
-		Warehouse:     a.defaultWarehouse,
+		Warehouse:     warehouse,
 	})
 	if err != nil {
 		return DispatchRecord{}, err
@@ -310,6 +321,21 @@ func (a *ERPAuthenticator) CreateDispatch(ctx context.Context, principal Princip
 		Status:       "pending",
 		CreatedLabel: draft.PostingDate,
 	}, nil
+}
+
+func (a *ERPAuthenticator) resolveWarehouse(ctx context.Context) (string, error) {
+	if strings.TrimSpace(a.defaultWarehouse) != "" {
+		return strings.TrimSpace(a.defaultWarehouse), nil
+	}
+
+	items, err := a.erp.SearchWarehouses(ctx, a.baseURL, a.apiKey, a.apiSecret, "", 1)
+	if err != nil {
+		return "", err
+	}
+	if len(items) == 0 || strings.TrimSpace(items[0].Name) == "" {
+		return "", fmt.Errorf("warehouse is not configured")
+	}
+	return strings.TrimSpace(items[0].Name), nil
 }
 
 func (a *ERPAuthenticator) ConfirmReceipt(ctx context.Context, receiptID string, acceptedQty float64) (DispatchRecord, error) {

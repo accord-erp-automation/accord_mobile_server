@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -243,6 +244,7 @@ func (s *Server) handleCreateDispatch(w http.ResponseWriter, r *http.Request) {
 
 	record, err := s.auth.CreateDispatch(r.Context(), principal, req.ItemCode, req.Qty)
 	if err != nil {
+		log.Printf("supplier dispatch create failed for %s/%s: %v", principal.Ref, req.ItemCode, err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "dispatch create failed"})
 		return
 	}

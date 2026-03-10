@@ -26,6 +26,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("config error: %v", err)
 	}
+	if err := config.EnsureCoreRuntimeConfig(&cfg, ".env", os.Stdin, os.Stdout); err != nil {
+		log.Fatalf("interactive config error: %v", err)
+	}
 
 	erpClient := erpnext.NewClient(&http.Client{Timeout: cfg.RequestTimeout})
 	service := core.NewERPAuthenticator(

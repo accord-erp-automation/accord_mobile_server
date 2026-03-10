@@ -1,9 +1,12 @@
 package config
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -63,4 +66,74 @@ func LoadFromEnv() (Config, error) {
 		WerkaName:              os.Getenv("WERKA_NAME"),
 		WerkaTelegramID:        werkaTelegramID,
 	}, nil
+}
+
+func EnsureCoreRuntimeConfig(cfg *Config, envPath string, in io.Reader, out io.Writer) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+
+	needsPrompt := strings.TrimSpace(cfg.DefaultERPURL) == "" ||
+		strings.TrimSpace(cfg.DefaultERPAPIKey) == "" ||
+		strings.TrimSpace(cfg.DefaultERPAPISecret) == ""
+	if !needsPrompt {
+		return nil
+	}
+
+	reader := bufio.NewReader(in)
+	values := map[string]string{}
+	if _, err := os.Stat(envPath); err == nil {
+		existing, readErr := godotenv.Read(envPath)
+		if readErr == nil {
+			values = existing
+		}
+	}
+
+	prompt := func(label, current string) (string, error) {
+		if strings.TrimSpace(current) != "" {
+			return strings.TrimSpace(current), nil
+		}
+		if _, err := fmt.Fprintf(out, "%s: ", label); err != nil {
+			return "", err
+		}
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			return "", fmt.Errorf("%s is required", label)
+		}
+		return line, nil
+	}
+
+	var err error
+	cfg.DefaultERPURL, err = prompt("ERP URL", cfg.DefaultERPURL)
+	if err != nil {
+		return err
+	}
+	cfg.DefaultERPAPIKey, err = prompt("ERP API key", cfg.DefaultERPAPIKey)
+	if err != nil {
+		return err
+	}
+	cfg.DefaultERPAPISecret, err = prompt("ERP API secret", cfg.DefaultERPAPISecret)
+	if err != nil {
+		return err
+	}
+
+	values["ERP_URL"] = cfg.DefaultERPURL
+	values["ERP_API_KEY"] = cfg.DefaultERPAPIKey
+	values["ERP_API_SECRET"] = cfg.DefaultERPAPISecret
+	if strings.TrimSpace(values["ERP_TIMEOUT_SECONDS"]) == "" {
+		values["ERP_TIMEOUT_SECONDS"] = strconv.Itoa(int(cfg.RequestTimeout / time.Second))
+	}
+
+	if err := godotenv.Write(values, envPath); err != nil {
+		return err
+	}
+
+	if _, err := fmt.Fprintln(out, "Core config saqlandi."); err != nil {
+		return err
+	}
+	return nil
 }

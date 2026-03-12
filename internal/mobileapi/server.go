@@ -41,11 +41,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/mobile/push/token", s.handlePushToken)
 	mux.HandleFunc("/v1/mobile/notifications/detail", s.handleNotificationDetail)
 	mux.HandleFunc("/v1/mobile/notifications/comments", s.handleNotificationComment)
+	mux.HandleFunc("/v1/mobile/supplier/unannounced/respond", s.handleSupplierUnannouncedRespond)
 	mux.HandleFunc("/v1/mobile/supplier/summary", s.handleSupplierSummary)
 	mux.HandleFunc("/v1/mobile/supplier/history", s.handleSupplierHistory)
 	mux.HandleFunc("/v1/mobile/supplier/items", s.handleSupplierItems)
 	mux.HandleFunc("/v1/mobile/supplier/dispatch", s.handleCreateDispatch)
 	mux.HandleFunc("/v1/mobile/werka/summary", s.handleWerkaSummary)
+	mux.HandleFunc("/v1/mobile/werka/suppliers", s.handleWerkaSuppliers)
+	mux.HandleFunc("/v1/mobile/werka/supplier-items", s.handleWerkaSupplierItems)
+	mux.HandleFunc("/v1/mobile/werka/unannounced/create", s.handleWerkaUnannouncedCreate)
 	mux.HandleFunc("/v1/mobile/werka/status-breakdown", s.handleWerkaStatusBreakdown)
 	mux.HandleFunc("/v1/mobile/werka/status-details", s.handleWerkaStatusDetails)
 	mux.HandleFunc("/v1/mobile/werka/pending", s.handleWerkaPending)
@@ -493,6 +497,42 @@ func (s *Server) handleSupplierItems(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, items)
 }
 
+func (s *Server) handleSupplierUnannouncedRespond(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	principal, ok := s.authorize(w, r)
+	if !ok {
+		return
+	}
+	if err := requireRole(principal, RoleSupplier); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	var req SupplierUnannouncedResponseRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	detail, err := s.auth.RespondWerkaUnannouncedDraft(r.Context(), principal, req.ReceiptID, req.Approve, req.Reason)
+	if err != nil {
+		log.Printf("supplier unannounced response failed for %s approve=%v reason=%q: %v", req.ReceiptID, req.Approve, req.Reason, err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "supplier unannounced response failed"})
+		return
+	}
+	if err := s.sender.SendToKey(
+		r.Context(),
+		string(RoleWerka)+":werka",
+		"Supplier javob berdi",
+		detail.Record.Note,
+		dispatchRecordData(detail.Record),
+	); err != nil {
+		log.Printf("push send failed for werka unannounced response: %v", err)
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
 func (s *Server) handleCreateDispatch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -565,6 +605,77 @@ func (s *Server) handleWerkaSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleWerkaSuppliers(w http.ResponseWriter, r *http.Request) {
+	principal, ok := s.authorize(w, r)
+	if !ok {
+		return
+	}
+	if err := requireRole(principal, RoleWerka); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	items, err := s.auth.WerkaSuppliers(r.Context(), 200)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "werka suppliers failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) handleWerkaSupplierItems(w http.ResponseWriter, r *http.Request) {
+	principal, ok := s.authorize(w, r)
+	if !ok {
+		return
+	}
+	if err := requireRole(principal, RoleWerka); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	supplierRef := strings.TrimSpace(r.URL.Query().Get("supplier_ref"))
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	items, err := s.auth.WerkaSupplierItems(r.Context(), supplierRef, query, 100)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "werka supplier items failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) handleWerkaUnannouncedCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	principal, ok := s.authorize(w, r)
+	if !ok {
+		return
+	}
+	if err := requireRole(principal, RoleWerka); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	var req WerkaUnannouncedCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	record, err := s.auth.CreateWerkaUnannouncedDraft(r.Context(), principal, req.SupplierRef, req.ItemCode, req.Qty)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "werka unannounced create failed"})
+		return
+	}
+	if err := s.sender.SendToKey(
+		r.Context(),
+		string(RoleSupplier)+":"+strings.TrimSpace(record.SupplierName),
+		"Werka siz qayd etmagan mahsulotni qabul qildi",
+		"Tasdiqlash kutilmoqda",
+		dispatchRecordData(record),
+	); err != nil {
+		log.Printf("push send failed for supplier unannounced draft: %v", err)
+	}
+	writeJSON(w, http.StatusOK, record)
 }
 
 func (s *Server) handleWerkaStatusBreakdown(w http.ResponseWriter, r *http.Request) {

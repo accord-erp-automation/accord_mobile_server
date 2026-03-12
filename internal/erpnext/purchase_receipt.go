@@ -884,6 +884,8 @@ const (
 	accordReasonLinePrefix   = "Accord Sabab:"
 	accordCommentLinePrefix  = "Accord Izoh:"
 	accordSupplierAckPrefix  = "Accord Supplier Tasdiq:"
+	accordWerkaUnannouncedPrefix = "Accord Werka Aytilmagan:"
+	accordWerkaUnannouncedReasonPrefix = "Accord Werka Aytilmagan Sabab:"
 )
 
 func buildAccordDecisionNote(draft PurchaseReceiptDraft, acceptedQty, returnedQty float64, returnReason, returnComment string) (string, error) {
@@ -1000,6 +1002,51 @@ func UpsertSupplierAcknowledgmentInRemarks(existingNote, message string) string 
 	}
 	filtered = append(filtered, accordSupplierAckPrefix+" "+strings.TrimSpace(message))
 	return strings.Join(filtered, "\n")
+}
+
+func UpsertWerkaUnannouncedInRemarks(existingNote, state, reason string) string {
+	lines := strings.Split(strings.ReplaceAll(existingNote, "\r\n", "\n"), "\n")
+	filtered := make([]string, 0, len(lines)+2)
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, accordWerkaUnannouncedPrefix) ||
+			strings.HasPrefix(trimmed, accordWerkaUnannouncedReasonPrefix) {
+			continue
+		}
+		filtered = append(filtered, trimmed)
+	}
+	if strings.TrimSpace(state) != "" {
+		filtered = append(filtered, accordWerkaUnannouncedPrefix+" "+strings.TrimSpace(state))
+	}
+	if strings.TrimSpace(reason) != "" {
+		filtered = append(filtered, accordWerkaUnannouncedReasonPrefix+" "+strings.TrimSpace(reason))
+	}
+	return strings.Join(filtered, "\n")
+}
+
+func ExtractWerkaUnannouncedState(remarks string) string {
+	lines := strings.Split(strings.ReplaceAll(remarks, "\r\n", "\n"), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, accordWerkaUnannouncedPrefix) {
+			return strings.ToLower(strings.TrimSpace(strings.TrimPrefix(trimmed, accordWerkaUnannouncedPrefix)))
+		}
+	}
+	return ""
+}
+
+func ExtractWerkaUnannouncedReason(remarks string) string {
+	lines := strings.Split(strings.ReplaceAll(remarks, "\r\n", "\n"), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, accordWerkaUnannouncedReasonPrefix) {
+			return strings.TrimSpace(strings.TrimPrefix(trimmed, accordWerkaUnannouncedReasonPrefix))
+		}
+	}
+	return ""
 }
 
 func (c *Client) UpdatePurchaseReceiptRemarks(ctx context.Context, baseURL, apiKey, apiSecret, name, remarks string) error {

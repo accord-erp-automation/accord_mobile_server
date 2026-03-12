@@ -623,6 +623,9 @@ func shouldHideStaleWerkaDraft(item erpnext.PurchaseReceiptDraft) bool {
 	if item.DocStatus != 0 {
 		return false
 	}
+	if strings.TrimSpace(erpnext.ExtractWerkaUnannouncedState(item.Remarks)) == "rejected" {
+		return true
+	}
 	return strings.TrimSpace(erpnext.ExtractAccordDecisionNote(item.Remarks)) != ""
 }
 
@@ -646,6 +649,12 @@ func (a *ERPAuthenticator) NotificationDetail(ctx context.Context, principal Pri
 	}
 
 	record := mapPurchaseReceiptToDispatchRecord(draft, draft.SupplierName)
+	if principal.Role == RoleSupplier &&
+		draft.DocStatus == 0 &&
+		strings.TrimSpace(erpnext.ExtractWerkaUnannouncedState(draft.Remarks)) == "pending" {
+		record.EventType = "werka_unannounced_pending"
+		record.Highlight = "Werka siz qayd etmagan mahsulotni qabul qildi"
+	}
 	if eventType == "supplier_ack" {
 		record.ID = strings.TrimSpace(receiptID)
 		record.EventType = eventType
@@ -708,6 +717,114 @@ func (a *ERPAuthenticator) AddNotificationComment(ctx context.Context, principal
 			// Supplier acknowledgment is already stored as a comment; remarks backfill is best-effort.
 		}
 	}
+	return a.NotificationDetail(ctx, principal, receiptID)
+}
+
+func (a *ERPAuthenticator) WerkaSuppliers(ctx context.Context, limit int) ([]SupplierDirectoryEntry, error) {
+	items, err := a.AdminSuppliers(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]SupplierDirectoryEntry, 0, len(items))
+	for _, item := range items {
+		result = append(result, SupplierDirectoryEntry{
+			Ref:   item.Ref,
+			Name:  item.Name,
+			Phone: item.Phone,
+		})
+	}
+	return result, nil
+}
+
+func (a *ERPAuthenticator) WerkaSupplierItems(ctx context.Context, supplierRef, query string, limit int) ([]SupplierItem, error) {
+	principal := Principal{Role: RoleSupplier, Ref: strings.TrimSpace(supplierRef)}
+	return a.supplierAllowedItems(ctx, principal, query, limit)
+}
+
+func (a *ERPAuthenticator) CreateWerkaUnannouncedDraft(ctx context.Context, principal Principal, supplierRef, itemCode string, qty float64) (DispatchRecord, error) {
+	if principal.Role != RoleWerka {
+		return DispatchRecord{}, ErrUnauthorized
+	}
+	supplier, _, err := a.findSupplierForAdmin(ctx, supplierRef)
+	if err != nil {
+		return DispatchRecord{}, err
+	}
+	if err := a.validateSupplierItemAllowed(ctx, supplier.ID, itemCode); err != nil {
+		return DispatchRecord{}, err
+	}
+	warehouse, err := a.resolveWarehouse(ctx)
+	if err != nil {
+		return DispatchRecord{}, err
+	}
+	draft, err := a.erp.CreateDraftPurchaseReceipt(ctx, a.baseURL, a.apiKey, a.apiSecret, erpnext.CreatePurchaseReceiptInput{
+		Supplier:      supplier.ID,
+		SupplierPhone: supplier.Phone,
+		ItemCode:      strings.TrimSpace(itemCode),
+		Qty:           qty,
+		Warehouse:     warehouse,
+	})
+	if err != nil {
+		return DispatchRecord{}, err
+	}
+	remarks := erpnext.UpsertWerkaUnannouncedInRemarks(draft.Remarks, "pending", "")
+	if err := a.erp.UpdatePurchaseReceiptRemarks(ctx, a.baseURL, a.apiKey, a.apiSecret, draft.Name, remarks); err != nil {
+		return DispatchRecord{}, err
+	}
+	_ = a.erp.AddPurchaseReceiptComment(ctx, a.baseURL, a.apiKey, a.apiSecret, draft.Name, formatNotificationComment(principal, "Aytilmagan mol sifatida qayd qilindi."))
+
+	draft.Remarks = remarks
+	record := mapPurchaseReceiptToDispatchRecord(draft, supplier.Name)
+	record.EventType = "werka_unannounced_pending"
+	record.Highlight = "Werka siz qayd etmagan mahsulotni qabul qildi"
+	return record, nil
+}
+
+func (a *ERPAuthenticator) RespondWerkaUnannouncedDraft(ctx context.Context, principal Principal, receiptID string, approve bool, reason string) (NotificationDetail, error) {
+	if principal.Role != RoleSupplier {
+		return NotificationDetail{}, ErrUnauthorized
+	}
+	draft, err := a.erp.GetPurchaseReceipt(ctx, a.baseURL, a.apiKey, a.apiSecret, strings.TrimSpace(receiptID))
+	if err != nil {
+		return NotificationDetail{}, err
+	}
+	if strings.TrimSpace(draft.Supplier) != strings.TrimSpace(principal.Ref) {
+		return NotificationDetail{}, ErrUnauthorized
+	}
+	if strings.TrimSpace(erpnext.ExtractWerkaUnannouncedState(draft.Remarks)) != "pending" {
+		return NotificationDetail{}, fmt.Errorf("unannounced draft is not pending")
+	}
+
+	if approve {
+		approvedRemarks := erpnext.UpsertWerkaUnannouncedInRemarks(draft.Remarks, "approved", "")
+		if err := a.erp.UpdatePurchaseReceiptRemarks(ctx, a.baseURL, a.apiKey, a.apiSecret, draft.Name, approvedRemarks); err != nil {
+			return NotificationDetail{}, err
+		}
+		result, err := a.erp.ConfirmAndSubmitPurchaseReceipt(ctx, a.baseURL, a.apiKey, a.apiSecret, draft.Name, draft.Qty, 0, "", "")
+		if err != nil {
+			return NotificationDetail{}, err
+		}
+		_ = a.erp.AddPurchaseReceiptComment(ctx, a.baseURL, a.apiKey, a.apiSecret, draft.Name, formatNotificationComment(principal, "Aytilmagan mol tasdiqlandi."))
+		detail, err := a.NotificationDetail(ctx, principal, receiptID)
+		if err != nil {
+			return NotificationDetail{}, err
+		}
+		detail.Record.AcceptedQty = result.AcceptedQty
+		detail.Record.Status = "accepted"
+		detail.Record.EventType = ""
+		detail.Record.Highlight = ""
+		detail.Record.Note = ""
+		return detail, nil
+	}
+
+	remarks := erpnext.UpsertWerkaUnannouncedInRemarks(draft.Remarks, "rejected", reason)
+	if err := a.erp.UpdatePurchaseReceiptRemarks(ctx, a.baseURL, a.apiKey, a.apiSecret, draft.Name, remarks); err != nil {
+		return NotificationDetail{}, err
+	}
+	message := "Aytilmagan mol rad etildi."
+	if strings.TrimSpace(reason) != "" {
+		message += " Sabab: " + strings.TrimSpace(reason)
+	}
+	_ = a.erp.AddPurchaseReceiptComment(ctx, a.baseURL, a.apiKey, a.apiSecret, draft.Name, formatNotificationComment(principal, message))
 	return a.NotificationDetail(ctx, principal, receiptID)
 }
 
@@ -991,6 +1108,9 @@ func bytesReader(content []byte) *bytes.Reader {
 
 func mapDispatchStatus(item erpnext.PurchaseReceiptDraft, sentQty float64) (string, float64) {
 	if item.DocStatus == 0 {
+		if strings.TrimSpace(erpnext.ExtractWerkaUnannouncedState(item.Remarks)) == "rejected" {
+			return "cancelled", 0
+		}
 		acceptedFromNote, returnedFromNote := erpnext.ExtractAccordDecisionQuantities(item.Remarks)
 		if acceptedFromNote <= 0 && returnedFromNote >= sentQty && returnedFromNote > 0 {
 			return "cancelled", 0
@@ -1021,6 +1141,22 @@ func mapPurchaseReceiptToDispatchRecord(item erpnext.PurchaseReceiptDraft, fallb
 	if status == "pending" {
 		acceptedQty = 0
 	}
+	note := erpnext.ExtractAccordDecisionNote(item.Remarks)
+	if note == "" &&
+		item.DocStatus == 0 &&
+		strings.TrimSpace(erpnext.ExtractWerkaUnannouncedState(item.Remarks)) == "pending" {
+		note = "Werka siz qayd etmagan mahsulotni qabul qildi. Tasdiqlash kutilmoqda."
+	}
+	if note == "" && strings.TrimSpace(erpnext.ExtractWerkaUnannouncedState(item.Remarks)) == "rejected" {
+		note = "Supplier aytilmagan molni rad etdi."
+		if reason := strings.TrimSpace(erpnext.ExtractWerkaUnannouncedReason(item.Remarks)); reason != "" {
+			note += "\nSabab: " + reason
+		}
+	}
+	eventType := ""
+	if item.DocStatus == 0 && strings.TrimSpace(erpnext.ExtractWerkaUnannouncedState(item.Remarks)) == "pending" {
+		eventType = "werka_unannounced_pending"
+	}
 	return DispatchRecord{
 		ID:           item.Name,
 		SupplierRef:  item.Supplier,
@@ -1032,8 +1168,8 @@ func mapPurchaseReceiptToDispatchRecord(item erpnext.PurchaseReceiptDraft, fallb
 		AcceptedQty:  acceptedQty,
 		Amount:       item.Amount,
 		Currency:     item.Currency,
-		Note:         erpnext.ExtractAccordDecisionNote(item.Remarks),
-		EventType:    "",
+		Note:         note,
+		EventType:    eventType,
 		Highlight:    "",
 		Status:       status,
 		CreatedLabel: item.PostingDate,

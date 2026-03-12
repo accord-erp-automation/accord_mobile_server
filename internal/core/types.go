@@ -70,6 +70,12 @@ type SupplierItem struct {
 	Warehouse string `json:"warehouse"`
 }
 
+type SupplierDirectoryEntry struct {
+	Ref   string `json:"ref"`
+	Name  string `json:"name"`
+	Phone string `json:"phone"`
+}
+
 type SupplierHomeSummary struct {
 	PendingCount   int `json:"pending_count"`
 	SubmittedCount int `json:"submitted_count"`
@@ -103,6 +109,18 @@ type ConfirmReceiptRequest struct {
 	ReturnedQty   float64 `json:"returned_qty"`
 	ReturnReason  string  `json:"return_reason"`
 	ReturnComment string  `json:"return_comment"`
+}
+
+type WerkaUnannouncedCreateRequest struct {
+	SupplierRef string  `json:"supplier_ref"`
+	ItemCode    string  `json:"item_code"`
+	Qty         float64 `json:"qty"`
+}
+
+type SupplierUnannouncedResponseRequest struct {
+	ReceiptID string `json:"receipt_id"`
+	Approve   bool   `json:"approve"`
+	Reason    string `json:"reason"`
 }
 
 type NotificationCommentCreateRequest struct {

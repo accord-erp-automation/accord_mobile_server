@@ -98,42 +98,43 @@ func (c *Client) GetCustomer(ctx context.Context, baseURL, apiKey, apiSecret, id
 }
 
 func (c *Client) ListCustomerItems(ctx context.Context, baseURL, apiKey, apiSecret, customerRef, query string, limit int) ([]Item, error) {
-	normalized, err := normalizeBaseURL(baseURL)
-	if err != nil {
-		return nil, err
-	}
 	if limit <= 0 {
 		limit = 50
 	}
 	if limit > 500 {
 		limit = 500
 	}
-
-	filtersJSON, _ := json.Marshal([][]interface{}{
-		{"party_type", "=", "Customer"},
-		{"party", "=", strings.TrimSpace(customerRef)},
-		{"restrict_based_on", "=", "Item"},
-	})
-
-	params := url.Values{}
-	params.Set("fields", `["name","party","party_type","restrict_based_on","based_on_value"]`)
-	params.Set("filters", string(filtersJSON))
-	params.Set("limit_page_length", strconv.Itoa(limit))
-
-	var payload struct {
-		Data []struct {
-			BasedOnValue string `json:"based_on_value"`
-		} `json:"data"`
-	}
-	endpoint := normalized + "/api/resource/Party%20Specific%20Item?" + params.Encode()
-	if err := c.doJSON(ctx, endpoint, apiKey, apiSecret, &payload); err != nil {
+	normalized, err := normalizeBaseURL(baseURL)
+	if err != nil {
 		return nil, err
 	}
+	customer, err := c.GetCustomer(ctx, normalized, apiKey, apiSecret, customerRef)
+	if err != nil {
+		return nil, err
+	}
+	customerKeys := map[string]struct{}{}
+	if trimmed := strings.ToLower(strings.TrimSpace(customer.ID)); trimmed != "" {
+		customerKeys[trimmed] = struct{}{}
+	}
+	if trimmed := strings.ToLower(strings.TrimSpace(customer.Name)); trimmed != "" {
+		customerKeys[trimmed] = struct{}{}
+	}
 
-	codes := make([]string, 0, len(payload.Data))
-	seen := make(map[string]struct{}, len(payload.Data))
-	for _, row := range payload.Data {
-		code := strings.TrimSpace(row.BasedOnValue)
+	candidates, err := c.SearchItems(ctx, normalized, apiKey, apiSecret, "", 500)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]Item, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		match, detailed, err := c.itemMatchesCustomer(ctx, normalized, apiKey, apiSecret, candidate.Code, customerKeys)
+		if err != nil {
+			return nil, err
+		}
+		if !match {
+			continue
+		}
+		code := strings.TrimSpace(detailed.Code)
 		if code == "" {
 			continue
 		}
@@ -141,15 +142,7 @@ func (c *Client) ListCustomerItems(ctx context.Context, baseURL, apiKey, apiSecr
 			continue
 		}
 		seen[code] = struct{}{}
-		codes = append(codes, code)
-	}
-	if len(codes) == 0 {
-		return []Item{}, nil
-	}
-
-	items, err := c.GetItemsByCodes(ctx, normalized, apiKey, apiSecret, codes)
-	if err != nil {
-		return nil, err
+		items = append(items, detailed)
 	}
 
 	trimmedQuery := strings.ToLower(strings.TrimSpace(query))
@@ -171,4 +164,35 @@ func (c *Client) ListCustomerItems(ctx context.Context, baseURL, apiKey, apiSecr
 		items = items[:limit]
 	}
 	return items, nil
+}
+
+func (c *Client) itemMatchesCustomer(ctx context.Context, normalized, apiKey, apiSecret, itemCode string, customerKeys map[string]struct{}) (bool, Item, error) {
+	endpoint := normalized + "/api/resource/Item/" + url.PathEscape(strings.TrimSpace(itemCode))
+	var payload struct {
+		Data struct {
+			ItemCode    string `json:"item_code"`
+			ItemName    string `json:"item_name"`
+			StockUOM    string `json:"stock_uom"`
+			CustomerItems []struct {
+				CustomerName string `json:"customer_name"`
+			} `json:"customer_items"`
+		} `json:"data"`
+	}
+	if err := c.doJSON(ctx, endpoint, apiKey, apiSecret, &payload); err != nil {
+		return false, Item{}, err
+	}
+	for _, row := range payload.Data.CustomerItems {
+		key := strings.ToLower(strings.TrimSpace(row.CustomerName))
+		if key == "" {
+			continue
+		}
+		if _, ok := customerKeys[key]; ok {
+			return true, Item{
+				Code: strings.TrimSpace(payload.Data.ItemCode),
+				Name: strings.TrimSpace(payload.Data.ItemName),
+				UOM:  strings.TrimSpace(payload.Data.StockUOM),
+			}, nil
+		}
+	}
+	return false, Item{}, nil
 }

@@ -76,6 +76,37 @@ func (s *PushTokenStore) Delete(key, token string) error {
 	return s.writeAllLocked(all)
 }
 
+func (s *PushTokenStore) MoveTokenToKey(targetKey, token, platform string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	all, err := s.loadAllLocked()
+	if err != nil {
+		return err
+	}
+	trimmedToken := strings.TrimSpace(token)
+	for key, records := range all {
+		filtered := make([]PushTokenRecord, 0, len(records))
+		for _, item := range records {
+			if strings.TrimSpace(item.Token) == trimmedToken {
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		if len(filtered) == 0 {
+			delete(all, key)
+		} else {
+			all[key] = filtered
+		}
+	}
+	all[strings.TrimSpace(targetKey)] = []PushTokenRecord{{
+		Token:     trimmedToken,
+		Platform:  strings.TrimSpace(platform),
+		UpdatedAt: time.Now().UTC(),
+	}}
+	return s.writeAllLocked(all)
+}
+
 func (s *PushTokenStore) List(key string) ([]PushTokenRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

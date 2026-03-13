@@ -373,7 +373,7 @@ func (s *Server) handleNotificationComment(w http.ResponseWriter, r *http.Reques
 			string(RoleWerka)+":werka",
 			"Supplier tasdiqladi",
 			record.Highlight,
-			dispatchRecordData(record),
+			dispatchRecordDataForTarget(record, RoleWerka, "werka"),
 		); err != nil {
 			log.Printf("push send failed for werka acknowledgment event: %v", err)
 		}
@@ -402,7 +402,7 @@ func (s *Server) handlePushToken(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "token is required"})
 			return
 		}
-		if err := s.push.Put(pushTokenKey(principal), req.Token, req.Platform); err != nil {
+		if err := s.push.MoveTokenToKey(pushTokenKey(principal), req.Token, req.Platform); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "push token save failed"})
 			return
 		}
@@ -445,6 +445,13 @@ func dispatchRecordData(record DispatchRecord) map[string]string {
 		"status":        string(record.Status),
 		"created_label": record.CreatedLabel,
 	}
+}
+
+func dispatchRecordDataForTarget(record DispatchRecord, role PrincipalRole, ref string) map[string]string {
+	data := dispatchRecordData(record)
+	data["target_role"] = string(role)
+	data["target_ref"] = strings.TrimSpace(ref)
+	return data
 }
 
 func (s *Server) handleSupplierHistory(w http.ResponseWriter, r *http.Request) {
@@ -570,7 +577,7 @@ func (s *Server) handleSupplierUnannouncedRespond(w http.ResponseWriter, r *http
 		string(RoleWerka)+":werka",
 		"Supplier javob berdi",
 		detail.Record.Note,
-		dispatchRecordData(detail.Record),
+		dispatchRecordDataForTarget(detail.Record, RoleWerka, "werka"),
 	); err != nil {
 		log.Printf("push send failed for werka unannounced response: %v", err)
 	}
@@ -608,7 +615,7 @@ func (s *Server) handleCreateDispatch(w http.ResponseWriter, r *http.Request) {
 		string(RoleWerka)+":werka",
 		record.SupplierName,
 		fmt.Sprintf("%s • %.0f %s qabul kutmoqda.", record.ItemCode, record.SentQty, record.UOM),
-		dispatchRecordData(record),
+		dispatchRecordDataForTarget(record, RoleWerka, "werka"),
 	); err != nil {
 		log.Printf("push send failed for werka dispatch notify: %v", err)
 	}
@@ -778,7 +785,7 @@ func (s *Server) handleWerkaUnannouncedCreate(w http.ResponseWriter, r *http.Req
 		string(RoleSupplier)+":"+strings.TrimSpace(record.SupplierRef),
 		"Werka siz qayd etmagan mahsulotni qabul qildi",
 		"Tasdiqlash kutilmoqda",
-		dispatchRecordData(record),
+		dispatchRecordDataForTarget(record, RoleSupplier, record.SupplierRef),
 	); err != nil {
 		log.Printf("push send failed for supplier unannounced draft: %v", err)
 	}
@@ -880,7 +887,7 @@ func (s *Server) handleWerkaConfirm(w http.ResponseWriter, r *http.Request) {
 		string(RoleSupplier)+":"+strings.TrimSpace(record.SupplierRef),
 		record.ItemCode,
 		fmt.Sprintf("Status: %s", strings.TrimSpace(record.Status)),
-		dispatchRecordData(record),
+		dispatchRecordDataForTarget(record, RoleSupplier, record.SupplierRef),
 	); err != nil {
 		log.Printf("push send failed for supplier receipt notify (%s): %v", strings.TrimSpace(record.SupplierName), err)
 	}

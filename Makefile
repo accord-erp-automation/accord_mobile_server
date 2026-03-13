@@ -10,7 +10,7 @@ run: stop
 	@echo "Starting core on $(ADDR)"
 	@set -a; \
 	if [ -f "$(ENV_FILE)" ]; then \
-		. "$(ENV_FILE)"; \
+		. "./$(ENV_FILE)"; \
 		echo "Loaded $(ENV_FILE)"; \
 	fi; \
 	set +a; \

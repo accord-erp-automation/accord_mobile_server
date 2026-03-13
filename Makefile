@@ -7,10 +7,14 @@ ENV_FILE := .env
 .PHONY: run stop test fmt tidy
 
 run: stop
-	@rm -f "$(ENV_FILE)"
-	@echo "Cleared previous core runtime config"
 	@echo "Starting core on $(ADDR)"
-	@MOBILE_API_ADDR="$(ADDR)" go run $(APP)
+	@set -a; \
+	if [ -f "$(ENV_FILE)" ]; then \
+		. "$(ENV_FILE)"; \
+		echo "Loaded $(ENV_FILE)"; \
+	fi; \
+	set +a; \
+	MOBILE_API_ADDR="$(ADDR)" go run $(APP)
 
 stop:
 	@pids_file=""; \

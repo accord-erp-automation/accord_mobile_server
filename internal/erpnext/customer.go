@@ -63,10 +63,14 @@ func (c *Client) SearchCustomers(ctx context.Context, baseURL, apiKey, apiSecret
 		if name == "" {
 			name = strings.TrimSpace(row.Name)
 		}
+		phone := strings.TrimSpace(row.MobileNo)
+		if phone == "" {
+			phone = extractPhoneFromCustomerDetails(row.Details)
+		}
 		items = append(items, Customer{
 			ID:      strings.TrimSpace(row.Name),
 			Name:    name,
-			Phone:   strings.TrimSpace(row.MobileNo),
+			Phone:   phone,
 			Details: strings.TrimSpace(row.Details),
 		})
 	}
@@ -95,10 +99,14 @@ func (c *Client) GetCustomer(ctx context.Context, baseURL, apiKey, apiSecret, id
 	if name == "" {
 		name = strings.TrimSpace(payload.Data.Name)
 	}
+	phone := strings.TrimSpace(payload.Data.MobileNo)
+	if phone == "" {
+		phone = extractPhoneFromCustomerDetails(payload.Data.Details)
+	}
 	return Customer{
 		ID:      strings.TrimSpace(payload.Data.Name),
 		Name:    name,
-		Phone:   strings.TrimSpace(payload.Data.MobileNo),
+		Phone:   phone,
 		Details: strings.TrimSpace(payload.Data.Details),
 	}, nil
 }
@@ -162,15 +170,7 @@ func (c *Client) UpdateCustomerDetails(ctx context.Context, baseURL, apiKey, api
 }
 
 func (c *Client) UpdateCustomerContact(ctx context.Context, baseURL, apiKey, apiSecret, id, phone, details string) error {
-	normalized, err := normalizeBaseURL(baseURL)
-	if err != nil {
-		return err
-	}
-	endpoint := normalized + "/api/resource/Customer/" + url.PathEscape(strings.TrimSpace(id))
-	return c.doJSONRequest(ctx, http.MethodPut, endpoint, apiKey, apiSecret, map[string]string{
-		"mobile_no":        strings.TrimSpace(phone),
-		"customer_details": strings.TrimSpace(details),
-	}, nil)
+	return c.UpdateCustomerDetails(ctx, baseURL, apiKey, apiSecret, id, details)
 }
 
 func (c *Client) ListCustomerItems(ctx context.Context, baseURL, apiKey, apiSecret, customerRef, query string, limit int) ([]Item, error) {
@@ -271,4 +271,22 @@ func (c *Client) itemMatchesCustomer(ctx context.Context, normalized, apiKey, ap
 		}
 	}
 	return false, Item{}, nil
+}
+
+func extractPhoneFromCustomerDetails(details string) string {
+	lines := strings.Split(strings.ReplaceAll(details, "\r\n", "\n"), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(lower, "telefon:") {
+			return strings.TrimSpace(trimmed[len("telefon:"):])
+		}
+		if strings.HasPrefix(lower, "phone:") {
+			return strings.TrimSpace(trimmed[len("phone:"):])
+		}
+	}
+	return ""
 }

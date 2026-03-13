@@ -64,6 +64,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/mobile/admin/suppliers", s.handleAdminSuppliers)
 	mux.HandleFunc("/v1/mobile/admin/customers", s.handleAdminCustomers)
 	mux.HandleFunc("/v1/mobile/admin/customers/detail", s.handleAdminCustomerDetail)
+	mux.HandleFunc("/v1/mobile/admin/customers/phone", s.handleAdminCustomerPhone)
+	mux.HandleFunc("/v1/mobile/admin/customers/code/regenerate", s.handleAdminCustomerCodeRegenerate)
 	mux.HandleFunc("/v1/mobile/admin/suppliers/summary", s.handleAdminSupplierSummary)
 	mux.HandleFunc("/v1/mobile/admin/suppliers/detail", s.handleAdminSupplierDetail)
 	mux.HandleFunc("/v1/mobile/admin/suppliers/inactive", s.handleAdminInactiveSuppliers)
@@ -1017,6 +1019,63 @@ func (s *Server) handleAdminCustomerDetail(w http.ResponseWriter, r *http.Reques
 	detail, err := s.auth.AdminCustomerDetail(r.Context(), ref)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "customer detail failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
+func (s *Server) handleAdminCustomerPhone(w http.ResponseWriter, r *http.Request) {
+	principal, ok := s.authorize(w, r)
+	if !ok {
+		return
+	}
+	if err := requireRole(principal, RoleAdmin); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	if r.Method != http.MethodPut {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
+	if ref == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "ref is required"})
+		return
+	}
+	var req AdminCustomerPhoneUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	detail, err := s.auth.AdminUpdateCustomerPhone(r.Context(), ref, req.Phone)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "customer phone update failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
+func (s *Server) handleAdminCustomerCodeRegenerate(w http.ResponseWriter, r *http.Request) {
+	principal, ok := s.authorize(w, r)
+	if !ok {
+		return
+	}
+	if err := requireRole(principal, RoleAdmin); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
+	if ref == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "ref is required"})
+		return
+	}
+	detail, err := s.auth.AdminRegenerateCustomerCode(r.Context(), ref)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "customer code regenerate failed"})
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)

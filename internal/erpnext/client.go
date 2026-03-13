@@ -51,9 +51,10 @@ type Supplier struct {
 }
 
 type Customer struct {
-	ID    string
-	Name  string
-	Phone string
+	ID      string
+	Name    string
+	Phone   string
+	Details string
 }
 
 type CreateCustomerInput struct {

@@ -40,6 +40,7 @@ type AdminCreateCustomerRequest = core.AdminCreateCustomerRequest
 type AdminSupplierSummary = core.AdminSupplierSummary
 type AdminSupplierDetail = core.AdminSupplierDetail
 type AdminCustomerDetail = core.AdminCustomerDetail
+type AdminCustomerPhoneUpdateRequest = core.AdminCustomerPhoneUpdateRequest
 type AdminSupplierStatusUpdateRequest = core.AdminSupplierStatusUpdateRequest
 type AdminSupplierPhoneUpdateRequest = core.AdminSupplierPhoneUpdateRequest
 type AdminSupplierItemsUpdateRequest = core.AdminSupplierItemsUpdateRequest

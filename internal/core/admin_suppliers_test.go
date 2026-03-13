@@ -42,6 +42,14 @@ func (s *adminSuppliersERPStub) EnsureCustomer(ctx context.Context, baseURL, api
 	}, nil
 }
 
+func (s *adminSuppliersERPStub) UpdateCustomerDetails(ctx context.Context, baseURL, apiKey, apiSecret, id, details string) error {
+	return nil
+}
+
+func (s *adminSuppliersERPStub) UpdateCustomerContact(ctx context.Context, baseURL, apiKey, apiSecret, id, phone, details string) error {
+	return nil
+}
+
 func (s *adminSuppliersERPStub) SearchSuppliers(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]erpnext.Supplier, error) {
 	if s.searchSuppliers != nil {
 		return s.searchSuppliers(ctx, baseURL, apiKey, apiSecret, query, limit)

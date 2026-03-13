@@ -48,6 +48,7 @@ func (c *Client) SearchCustomers(ctx context.Context, baseURL, apiKey, apiSecret
 			Name         string `json:"name"`
 			CustomerName string `json:"customer_name"`
 			MobileNo     string `json:"mobile_no"`
+			Details      string `json:"customer_details"`
 		} `json:"data"`
 	}
 
@@ -63,9 +64,10 @@ func (c *Client) SearchCustomers(ctx context.Context, baseURL, apiKey, apiSecret
 			name = strings.TrimSpace(row.Name)
 		}
 		items = append(items, Customer{
-			ID:    strings.TrimSpace(row.Name),
-			Name:  name,
-			Phone: strings.TrimSpace(row.MobileNo),
+			ID:      strings.TrimSpace(row.Name),
+			Name:    name,
+			Phone:   strings.TrimSpace(row.MobileNo),
+			Details: strings.TrimSpace(row.Details),
 		})
 	}
 	return items, nil
@@ -83,6 +85,7 @@ func (c *Client) GetCustomer(ctx context.Context, baseURL, apiKey, apiSecret, id
 			Name         string `json:"name"`
 			CustomerName string `json:"customer_name"`
 			MobileNo     string `json:"mobile_no"`
+			Details      string `json:"customer_details"`
 		} `json:"data"`
 	}
 	if err := c.doJSON(ctx, endpoint, apiKey, apiSecret, &payload); err != nil {
@@ -93,9 +96,10 @@ func (c *Client) GetCustomer(ctx context.Context, baseURL, apiKey, apiSecret, id
 		name = strings.TrimSpace(payload.Data.Name)
 	}
 	return Customer{
-		ID:    strings.TrimSpace(payload.Data.Name),
-		Name:  name,
-		Phone: strings.TrimSpace(payload.Data.MobileNo),
+		ID:      strings.TrimSpace(payload.Data.Name),
+		Name:    name,
+		Phone:   strings.TrimSpace(payload.Data.MobileNo),
+		Details: strings.TrimSpace(payload.Data.Details),
 	}, nil
 }
 
@@ -144,6 +148,29 @@ func (c *Client) EnsureCustomer(ctx context.Context, baseURL, apiKey, apiSecret 
 		Name:  strings.TrimSpace(response.Data.CustomerName),
 		Phone: strings.TrimSpace(response.Data.MobileNo),
 	}, nil
+}
+
+func (c *Client) UpdateCustomerDetails(ctx context.Context, baseURL, apiKey, apiSecret, id, details string) error {
+	normalized, err := normalizeBaseURL(baseURL)
+	if err != nil {
+		return err
+	}
+	endpoint := normalized + "/api/resource/Customer/" + url.PathEscape(strings.TrimSpace(id))
+	return c.doJSONRequest(ctx, http.MethodPut, endpoint, apiKey, apiSecret, map[string]string{
+		"customer_details": strings.TrimSpace(details),
+	}, nil)
+}
+
+func (c *Client) UpdateCustomerContact(ctx context.Context, baseURL, apiKey, apiSecret, id, phone, details string) error {
+	normalized, err := normalizeBaseURL(baseURL)
+	if err != nil {
+		return err
+	}
+	endpoint := normalized + "/api/resource/Customer/" + url.PathEscape(strings.TrimSpace(id))
+	return c.doJSONRequest(ctx, http.MethodPut, endpoint, apiKey, apiSecret, map[string]string{
+		"mobile_no":        strings.TrimSpace(phone),
+		"customer_details": strings.TrimSpace(details),
+	}, nil)
 }
 
 func (c *Client) ListCustomerItems(ctx context.Context, baseURL, apiKey, apiSecret, customerRef, query string, limit int) ([]Item, error) {

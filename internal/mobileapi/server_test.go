@@ -79,6 +79,14 @@ func (f *fakeERPClient) EnsureCustomer(_ context.Context, _, _, _ string, input 
 	}, nil
 }
 
+func (f *fakeERPClient) UpdateCustomerDetails(_ context.Context, _, _, _, _, _ string) error {
+	return nil
+}
+
+func (f *fakeERPClient) UpdateCustomerContact(_ context.Context, _, _, _, _, _, _ string) error {
+	return nil
+}
+
 func (f *fakeERPClient) SearchSuppliers(_ context.Context, _, _, _, _ string, _ int) ([]erpnext.Supplier, error) {
 	return f.suppliers, nil
 }

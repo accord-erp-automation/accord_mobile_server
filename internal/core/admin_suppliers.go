@@ -445,11 +445,84 @@ func (a *ERPAuthenticator) AdminCustomerDetail(ctx context.Context, ref string) 
 	if err != nil {
 		return AdminCustomerDetail{}, err
 	}
+	state, err := a.adminSupplierState(item.ID)
+	if err != nil {
+		return AdminCustomerDetail{}, err
+	}
+	code := strings.TrimSpace(state.CustomCode)
 	return AdminCustomerDetail{
-		Ref:   item.ID,
-		Name:  item.Name,
-		Phone: item.Phone,
+		Ref:               item.ID,
+		Name:              item.Name,
+		Phone:             item.Phone,
+		Code:              code,
+		CodeLocked:        state.isCodeLocked(a.nowUTC()),
+		CodeRetryAfterSec: state.retryAfterSeconds(a.nowUTC()),
 	}, nil
+}
+
+func (a *ERPAuthenticator) AdminUpdateCustomerPhone(ctx context.Context, ref, phone string) (AdminCustomerDetail, error) {
+	item, err := a.erp.GetCustomer(ctx, a.baseURL, a.apiKey, a.apiSecret, strings.TrimSpace(ref))
+	if err != nil {
+		return AdminCustomerDetail{}, err
+	}
+
+	cleanPhone := strings.NewReplacer(" ", "", "-", "", "(", "", ")", "").Replace(phone)
+	if !strings.HasPrefix(strings.TrimSpace(cleanPhone), "+") {
+		digitsOnly := cleanPhone
+		if len(digitsOnly) == 9 {
+			cleanPhone = "998" + digitsOnly
+		}
+	}
+	normalizedPhone, err := suplier.NormalizePhone(cleanPhone)
+	if err != nil {
+		return AdminCustomerDetail{}, err
+	}
+
+	details := upsertSupplierPhoneInDetails(item.Details, normalizedPhone)
+	if err := a.erp.UpdateCustomerContact(ctx, a.baseURL, a.apiKey, a.apiSecret, item.ID, normalizedPhone, details); err != nil {
+		return AdminCustomerDetail{}, err
+	}
+	return a.AdminCustomerDetail(ctx, item.ID)
+}
+
+func (a *ERPAuthenticator) AdminRegenerateCustomerCode(ctx context.Context, ref string) (AdminCustomerDetail, error) {
+	item, err := a.erp.GetCustomer(ctx, a.baseURL, a.apiKey, a.apiSecret, strings.TrimSpace(ref))
+	if err != nil {
+		return AdminCustomerDetail{}, err
+	}
+	state, err := a.adminSupplierState(item.ID)
+	if err != nil {
+		return AdminCustomerDetail{}, err
+	}
+
+	existing := map[string]struct{}{}
+	if codes, err := a.adminSupplierStates(); err == nil {
+		for _, candidate := range codes {
+			if trimmed := strings.TrimSpace(candidate.CustomCode); trimmed != "" {
+				existing[trimmed] = struct{}{}
+			}
+		}
+	}
+
+	state.CustomCode, err = randomSupplierCode("30", existing)
+	if err != nil {
+		return AdminCustomerDetail{}, err
+	}
+	now := a.nowUTC()
+	state, err = a.bumpCodeRegenState(state, now)
+	if err != nil {
+		return AdminCustomerDetail{}, err
+	}
+	state.UpdatedAt = time.Now().UTC()
+	if err := a.saveAdminSupplierState(item.ID, state); err != nil {
+		return AdminCustomerDetail{}, err
+	}
+
+	details := upsertAccordCodeInDetails(item.Details, state.CustomCode)
+	if err := a.erp.UpdateCustomerDetails(ctx, a.baseURL, a.apiKey, a.apiSecret, item.ID, details); err != nil {
+		return AdminCustomerDetail{}, err
+	}
+	return a.AdminCustomerDetail(ctx, item.ID)
 }
 
 func (a *ERPAuthenticator) supplierAllowedItems(ctx context.Context, principal Principal, query string, limit int) ([]SupplierItem, error) {

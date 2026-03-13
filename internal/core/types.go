@@ -223,6 +223,12 @@ type AdminSupplierDetail struct {
 	AssignedItems     []SupplierItem `json:"assigned_items"`
 }
 
+type AdminCustomerDetail struct {
+	Ref   string `json:"ref"`
+	Name  string `json:"name"`
+	Phone string `json:"phone"`
+}
+
 type AdminSupplierStatusUpdateRequest struct {
 	Blocked bool `json:"blocked"`
 }

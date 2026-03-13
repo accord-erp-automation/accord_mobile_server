@@ -63,6 +63,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/mobile/admin/settings", s.handleAdminSettings)
 	mux.HandleFunc("/v1/mobile/admin/suppliers", s.handleAdminSuppliers)
 	mux.HandleFunc("/v1/mobile/admin/customers", s.handleAdminCustomers)
+	mux.HandleFunc("/v1/mobile/admin/customers/detail", s.handleAdminCustomerDetail)
 	mux.HandleFunc("/v1/mobile/admin/suppliers/summary", s.handleAdminSupplierSummary)
 	mux.HandleFunc("/v1/mobile/admin/suppliers/detail", s.handleAdminSupplierDetail)
 	mux.HandleFunc("/v1/mobile/admin/suppliers/inactive", s.handleAdminInactiveSuppliers)
@@ -993,6 +994,32 @@ func (s *Server) handleAdminCustomers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) handleAdminCustomerDetail(w http.ResponseWriter, r *http.Request) {
+	principal, ok := s.authorize(w, r)
+	if !ok {
+		return
+	}
+	if err := requireRole(principal, RoleAdmin); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
+	if ref == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "ref is required"})
+		return
+	}
+	detail, err := s.auth.AdminCustomerDetail(r.Context(), ref)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "customer detail failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
 }
 
 func (s *Server) handleAdminSupplierSummary(w http.ResponseWriter, r *http.Request) {

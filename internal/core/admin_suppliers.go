@@ -440,6 +440,18 @@ func (a *ERPAuthenticator) AdminCustomers(ctx context.Context, limit int) ([]Cus
 	return result, nil
 }
 
+func (a *ERPAuthenticator) AdminCustomerDetail(ctx context.Context, ref string) (AdminCustomerDetail, error) {
+	item, err := a.erp.GetCustomer(ctx, a.baseURL, a.apiKey, a.apiSecret, strings.TrimSpace(ref))
+	if err != nil {
+		return AdminCustomerDetail{}, err
+	}
+	return AdminCustomerDetail{
+		Ref:   item.ID,
+		Name:  item.Name,
+		Phone: item.Phone,
+	}, nil
+}
+
 func (a *ERPAuthenticator) supplierAllowedItems(ctx context.Context, principal Principal, query string, limit int) ([]SupplierItem, error) {
 	state, err := a.adminSupplierState(principal.Ref)
 	if err != nil {

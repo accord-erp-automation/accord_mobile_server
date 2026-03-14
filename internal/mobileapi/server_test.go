@@ -36,6 +36,31 @@ type fakeERPClient struct {
 	lastDeliveryNote      erpnext.CreateDeliveryNoteInput
 }
 
+type recordedPushCall struct {
+	key   string
+	title string
+	body  string
+	data  map[string]string
+}
+
+type recordingPushSender struct {
+	calls []recordedPushCall
+}
+
+func (r *recordingPushSender) SendToKey(_ context.Context, key, title, body string, data map[string]string) error {
+	cloned := map[string]string{}
+	for k, v := range data {
+		cloned[k] = v
+	}
+	r.calls = append(r.calls, recordedPushCall{
+		key:   key,
+		title: title,
+		body:  body,
+		data:  cloned,
+	})
+	return nil
+}
+
 func (f *fakeERPClient) SearchItems(_ context.Context, _, _, _, query string, limit int) ([]erpnext.Item, error) {
 	return filterFakeItems(f.items, query, limit), nil
 }
@@ -1686,6 +1711,8 @@ func TestServerCustomerDetailAndRespond(t *testing.T) {
 		nil,
 		nil,
 	))
+	recorder := &recordingPushSender{}
+	server.sender = recorder
 	token, err := server.sessions.Create(Principal{
 		Role:        RoleCustomer,
 		DisplayName: "Comfi",
@@ -1734,6 +1761,18 @@ func TestServerCustomerDetailAndRespond(t *testing.T) {
 	}
 	if updated.CanApprove || updated.CanReject {
 		t.Fatalf("expected actions disabled after confirm, got %+v", updated)
+	}
+	if len(recorder.calls) != 2 {
+		t.Fatalf("expected 2 push calls, got %d", len(recorder.calls))
+	}
+	if recorder.calls[0].key != "werka:werka" {
+		t.Fatalf("unexpected first push key: %+v", recorder.calls[0])
+	}
+	if recorder.calls[0].data["event_type"] != "" {
+		t.Fatalf("unexpected push event type before phase 5 feed shaping: %+v", recorder.calls[0].data)
+	}
+	if recorder.calls[1].key != "admin:admin" {
+		t.Fatalf("unexpected second push key: %+v", recorder.calls[1])
 	}
 }
 

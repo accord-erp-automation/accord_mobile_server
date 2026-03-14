@@ -618,6 +618,24 @@ func (s *Server) handleCustomerRespond(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "customer respond failed"})
 		return
 	}
+	if err := s.sender.SendToKey(
+		r.Context(),
+		string(RoleWerka)+":werka",
+		"Customer javob berdi",
+		detail.Record.Note,
+		dispatchRecordDataForTarget(detail.Record, RoleWerka, "werka"),
+	); err != nil {
+		log.Printf("push send failed for werka customer response: %v", err)
+	}
+	if err := s.sender.SendToKey(
+		r.Context(),
+		string(RoleAdmin)+":admin",
+		"Customer javob berdi",
+		detail.Record.Note,
+		dispatchRecordDataForTarget(detail.Record, RoleAdmin, "admin"),
+	); err != nil {
+		log.Printf("push send failed for admin customer response: %v", err)
+	}
 	writeJSON(w, http.StatusOK, detail)
 }
 

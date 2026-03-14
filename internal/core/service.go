@@ -25,7 +25,10 @@ var (
 	htmlTagPattern        = regexp.MustCompile(`<[^>]+>`)
 )
 
-const supplierAckEventPrefix = "supplier_ack:"
+const (
+	supplierAckEventPrefix            = "supplier_ack:"
+	customerDeliveryResultEventPrefix = "customer_delivery_result:"
+)
 
 type ERPClient interface {
 	SearchItems(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]erpnext.Item, error)
@@ -1299,6 +1302,40 @@ func latestCustomerDecisionReason(comments []erpnext.Comment) string {
 		}
 	}
 	return ""
+}
+
+func latestCustomerDecisionCommentID(comments []erpnext.Comment) string {
+	for index := len(comments) - 1; index >= 0; index-- {
+		comment := comments[index]
+		if state := strings.TrimSpace(erpnext.ExtractCustomerDecisionState(comment.Content)); state != "" {
+			return strings.TrimSpace(comment.ID)
+		}
+	}
+	return ""
+}
+
+func buildCustomerDeliveryResultEvent(item erpnext.DeliveryNoteDraft, comments []erpnext.Comment) (DispatchRecord, bool) {
+	state := customerDeliveryStatus(item, comments)
+	if state != "accepted" && state != "rejected" {
+		return DispatchRecord{}, false
+	}
+
+	commentID := latestCustomerDecisionCommentID(comments)
+	if commentID == "" {
+		return DispatchRecord{}, false
+	}
+
+	base := mapDeliveryNoteToDispatchRecord(item, comments)
+	base.ID = customerDeliveryResultEventPrefix + strings.TrimSpace(item.Name) + ":" + commentID
+	if state == "accepted" {
+		base.EventType = "customer_delivery_confirmed"
+		base.Highlight = "Customer mahsulotni qabul qildi"
+		return base, true
+	}
+
+	base.EventType = "customer_delivery_rejected"
+	base.Highlight = "Customer mahsulotni rad etdi"
+	return base, true
 }
 
 func deliveryNoteNames(items []erpnext.DeliveryNoteDraft) []string {

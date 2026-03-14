@@ -157,9 +157,31 @@ func (c *Client) ListCustomerDeliveryNotesPage(ctx context.Context, baseURL, api
 		if err != nil {
 			return nil, err
 		}
+		if doc.ItemCode == "" || doc.ItemName == "" || doc.Qty <= 0 {
+			full, err := c.GetDeliveryNote(ctx, normalized, apiKey, apiSecret, doc.Name)
+			if err != nil {
+				return nil, err
+			}
+			doc = full
+		}
 		items = append(items, doc)
 	}
 	return items, nil
+}
+
+func (c *Client) GetDeliveryNote(ctx context.Context, baseURL, apiKey, apiSecret, name string) (DeliveryNoteDraft, error) {
+	normalized, err := normalizeBaseURL(baseURL)
+	if err != nil {
+		return DeliveryNoteDraft{}, err
+	}
+	endpoint := normalized + "/api/resource/Delivery%20Note/" + url.PathEscape(strings.TrimSpace(name))
+	var payload struct {
+		Data map[string]interface{} `json:"data"`
+	}
+	if err := c.doJSON(ctx, endpoint, apiKey, apiSecret, &payload); err != nil {
+		return DeliveryNoteDraft{}, err
+	}
+	return mapDeliveryNoteDraft(payload.Data)
 }
 
 func mapDeliveryNoteDraft(doc map[string]interface{}) (DeliveryNoteDraft, error) {

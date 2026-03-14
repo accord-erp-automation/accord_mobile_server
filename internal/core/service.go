@@ -666,9 +666,46 @@ func (a *ERPAuthenticator) WerkaHistory(ctx context.Context, limit int) ([]Dispa
 			})
 		}
 	}
+
+	customerResultEvents, err := a.customerConfirmedDeliveryEvents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result = append(result, customerResultEvents...)
+
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].CreatedLabel > result[j].CreatedLabel
 	})
+	return result, nil
+}
+
+func (a *ERPAuthenticator) customerConfirmedDeliveryEvents(ctx context.Context) ([]DispatchRecord, error) {
+	customers, err := a.erp.SearchCustomers(ctx, a.baseURL, a.apiKey, a.apiSecret, "", 500)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]DispatchRecord, 0, len(customers))
+	for _, customer := range customers {
+		deliveryNotes, err := a.collectCustomerDeliveryNotes(ctx, customer.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(deliveryNotes) == 0 {
+			continue
+		}
+		commentsByName, err := a.erp.ListDeliveryNoteCommentsBatch(ctx, a.baseURL, a.apiKey, a.apiSecret, deliveryNoteNames(deliveryNotes), 50)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range deliveryNotes {
+			record, ok := buildCustomerDeliveryResultEvent(item, commentsByName[item.Name])
+			if !ok || record.EventType != "customer_delivery_confirmed" {
+				continue
+			}
+			result = append(result, record)
+		}
+	}
 	return result, nil
 }
 
@@ -1314,6 +1351,16 @@ func latestCustomerDecisionCommentID(comments []erpnext.Comment) string {
 	return ""
 }
 
+func latestCustomerDecisionCreatedAt(comments []erpnext.Comment) string {
+	for index := len(comments) - 1; index >= 0; index-- {
+		comment := comments[index]
+		if state := strings.TrimSpace(erpnext.ExtractCustomerDecisionState(comment.Content)); state != "" {
+			return strings.TrimSpace(comment.CreatedAt)
+		}
+	}
+	return ""
+}
+
 func buildCustomerDeliveryResultEvent(item erpnext.DeliveryNoteDraft, comments []erpnext.Comment) (DispatchRecord, bool) {
 	state := customerDeliveryStatus(item, comments)
 	if state != "accepted" && state != "rejected" {
@@ -1327,6 +1374,9 @@ func buildCustomerDeliveryResultEvent(item erpnext.DeliveryNoteDraft, comments [
 
 	base := mapDeliveryNoteToDispatchRecord(item, comments)
 	base.ID = customerDeliveryResultEventPrefix + strings.TrimSpace(item.Name) + ":" + commentID
+	if createdAt := latestCustomerDecisionCreatedAt(comments); createdAt != "" {
+		base.CreatedLabel = createdAt
+	}
 	if state == "accepted" {
 		base.EventType = "customer_delivery_confirmed"
 		base.Highlight = "Customer mahsulotni qabul qildi"

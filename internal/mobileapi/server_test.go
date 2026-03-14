@@ -1736,3 +1736,98 @@ func TestServerCustomerDetailAndRespond(t *testing.T) {
 		t.Fatalf("expected actions disabled after confirm, got %+v", updated)
 	}
 }
+
+func TestServerWerkaAndAdminHistoryIncludeCustomerConfirmedResult(t *testing.T) {
+	server := NewServer(NewERPAuthenticator(
+		&fakeERPClient{
+			telegramReceipts: []erpnext.PurchaseReceiptDraft{},
+			customers: []erpnext.Customer{
+				{ID: "CUST-001", Name: "Comfi"},
+			},
+			customerDeliveryNotes: []erpnext.DeliveryNoteDraft{
+				{
+					Name:         "MAT-DN-0011",
+					Customer:     "CUST-001",
+					CustomerName: "Comfi",
+					ItemCode:     "ITEM-001",
+					ItemName:     "Chers",
+					Qty:          4,
+					UOM:          "Nos",
+					PostingDate:  "2026-03-14",
+					Status:       "Submitted",
+					DocStatus:    1,
+				},
+			},
+			comments: map[string][]erpnext.Comment{
+				"MAT-DN-0011": {{
+					ID:        "COMMENT-11",
+					Content:   erpnext.UpsertCustomerDecisionInRemarks("", "confirmed", ""),
+					CreatedAt: "2026-03-14 10:10:00",
+				}},
+			},
+		},
+		"http://localhost:8000",
+		"key",
+		"secret",
+		"Stores - CH",
+		"10",
+		"20",
+		"20WERKA0001",
+		"+998901111111",
+		"Werka",
+		nil,
+		nil,
+	))
+
+	werkaToken, err := server.sessions.Create(Principal{
+		Role:        RoleWerka,
+		DisplayName: "Werka",
+		Ref:         "werka",
+	})
+	if err != nil {
+		t.Fatalf("failed to create werka session: %v", err)
+	}
+	werkaReq := httptest.NewRequest(http.MethodGet, "/v1/mobile/werka/history", nil)
+	werkaReq.Header.Set("Authorization", "Bearer "+werkaToken)
+	werkaResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(werkaResp, werkaReq)
+	if werkaResp.Code != http.StatusOK {
+		t.Fatalf("unexpected werka history status: %d body=%s", werkaResp.Code, werkaResp.Body.String())
+	}
+	var werkaRecords []DispatchRecord
+	if err := json.NewDecoder(werkaResp.Body).Decode(&werkaRecords); err != nil {
+		t.Fatalf("decode werka history failed: %v", err)
+	}
+	if len(werkaRecords) != 1 {
+		t.Fatalf("expected 1 werka record, got %d", len(werkaRecords))
+	}
+	if werkaRecords[0].EventType != "customer_delivery_confirmed" {
+		t.Fatalf("unexpected werka event type: %+v", werkaRecords[0])
+	}
+
+	adminToken, err := server.sessions.Create(Principal{
+		Role:        RoleAdmin,
+		DisplayName: "Admin",
+		Ref:         "admin",
+	})
+	if err != nil {
+		t.Fatalf("failed to create admin session: %v", err)
+	}
+	adminReq := httptest.NewRequest(http.MethodGet, "/v1/mobile/admin/activity", nil)
+	adminReq.Header.Set("Authorization", "Bearer "+adminToken)
+	adminResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(adminResp, adminReq)
+	if adminResp.Code != http.StatusOK {
+		t.Fatalf("unexpected admin activity status: %d body=%s", adminResp.Code, adminResp.Body.String())
+	}
+	var adminRecords []DispatchRecord
+	if err := json.NewDecoder(adminResp.Body).Decode(&adminRecords); err != nil {
+		t.Fatalf("decode admin activity failed: %v", err)
+	}
+	if len(adminRecords) != 1 {
+		t.Fatalf("expected 1 admin record, got %d", len(adminRecords))
+	}
+	if adminRecords[0].EventType != "customer_delivery_confirmed" {
+		t.Fatalf("unexpected admin event type: %+v", adminRecords[0])
+	}
+}

@@ -309,7 +309,7 @@ func (s *Server) handleNotificationDetail(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if principal.Role != RoleSupplier && principal.Role != RoleWerka {
+	if principal.Role != RoleSupplier && principal.Role != RoleWerka && principal.Role != RoleCustomer {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 		return
 	}

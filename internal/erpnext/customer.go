@@ -28,7 +28,7 @@ func (c *Client) SearchCustomers(ctx context.Context, baseURL, apiKey, apiSecret
 	})
 
 	params := url.Values{}
-	params.Set("fields", `["name","customer_name","mobile_no"]`)
+	params.Set("fields", `["name","customer_name","mobile_no","customer_details"]`)
 	params.Set("filters", string(filtersJSON))
 	params.Set("limit_page_length", strconv.Itoa(limit))
 	params.Set("order_by", "modified desc")

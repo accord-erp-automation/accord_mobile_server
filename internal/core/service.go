@@ -230,6 +230,42 @@ func (a *ERPAuthenticator) Login(ctx context.Context, phone, code string) (Princ
 		}
 		return Principal{}, ErrInvalidCredentials
 
+	case RoleCustomer:
+		customers, err := a.erp.SearchCustomers(ctx, a.baseURL, a.apiKey, a.apiSecret, normalizedPhone, 50)
+		if err != nil {
+			return Principal{}, err
+		}
+		if len(customers) == 0 {
+			customers, err = a.erp.SearchCustomers(ctx, a.baseURL, a.apiKey, a.apiSecret, "", 500)
+			if err != nil {
+				return Principal{}, err
+			}
+		}
+		states, err := a.adminSupplierStates()
+		if err != nil {
+			return Principal{}, err
+		}
+		for _, item := range customers {
+			state := states[strings.TrimSpace(item.ID)]
+			codeValue := strings.TrimSpace(state.CustomCode)
+			if codeValue == "" {
+				continue
+			}
+			if strings.TrimSpace(code) == codeValue &&
+				strings.TrimSpace(item.Phone) != "" &&
+				strings.EqualFold(strings.TrimSpace(item.Phone), normalizedPhone) {
+				principal := Principal{
+					Role:        RoleCustomer,
+					DisplayName: item.Name,
+					LegalName:   item.Name,
+					Ref:         item.ID,
+					Phone:       item.Phone,
+				}
+				return a.mergeProfilePrefs(principal), nil
+			}
+		}
+		return Principal{}, ErrInvalidCredentials
+
 	case RoleWerka:
 		if code == a.werkaCode && code != "" {
 			if a.werkaPhone != "" {
@@ -264,6 +300,12 @@ func (a *ERPAuthenticator) Profile(ctx context.Context, principal Principal) (Pr
 			if doc.Image != "" {
 				principal.AvatarURL = absoluteFileURL(a.baseURL, doc.Image)
 			}
+		}
+	}
+	if principal.Role == RoleCustomer {
+		doc, err := a.erp.GetCustomer(ctx, a.baseURL, a.apiKey, a.apiSecret, principal.Ref)
+		if err == nil {
+			principal.Phone = doc.Phone
 		}
 	}
 	return a.mergeProfilePrefs(principal), nil
@@ -315,6 +357,8 @@ func (a *ERPAuthenticator) inferRole(code string) (PrincipalRole, error) {
 		return RoleSupplier, nil
 	case strings.HasPrefix(trimmed, a.werkaPrefix):
 		return RoleWerka, nil
+	case strings.HasPrefix(trimmed, "30"):
+		return RoleCustomer, nil
 	default:
 		return "", ErrInvalidRole
 	}

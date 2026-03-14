@@ -7,6 +7,7 @@ type PrincipalRole = core.PrincipalRole
 const (
 	RoleSupplier = core.RoleSupplier
 	RoleWerka    = core.RoleWerka
+	RoleCustomer = core.RoleCustomer
 	RoleAdmin    = core.RoleAdmin
 )
 

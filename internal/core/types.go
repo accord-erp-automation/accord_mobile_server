@@ -7,6 +7,7 @@ type PrincipalRole string
 const (
 	RoleSupplier PrincipalRole = "supplier"
 	RoleWerka    PrincipalRole = "werka"
+	RoleCustomer PrincipalRole = "customer"
 	RoleAdmin    PrincipalRole = "admin"
 )
 

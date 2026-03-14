@@ -14,18 +14,26 @@ run: stop
 		echo "Loaded $(ENV_FILE)"; \
 	fi; \
 	set +a; \
+	port="$(ADDR)"; \
+	port="$${port##*:}"; \
+	if ss -ltn "( sport = :$$port )" 2>/dev/null | tail -n +2 | grep -q .; then \
+		echo "Port $$port is still busy; refusing to start"; \
+		ss -ltnp "( sport = :$$port )" || true; \
+		exit 1; \
+	fi; \
 	MOBILE_API_ADDR="$(ADDR)" go run $(APP)
 
 stop:
-	@pids_file=""; \
+	@port="$(ADDR)"; \
+	port="$${port##*:}"; \
+	pids_file=""; \
 	if [ -f "$(PID_FILE)" ]; then \
 		pids_file="$$(cat "$(PID_FILE)" 2>/dev/null || true)"; \
 	fi; \
-	pids_go=$$(pgrep -x -f "go run ./cmd/core" || true); \
-	pids_port=$$(lsof -t -iTCP:8081 -sTCP:LISTEN -n -P 2>/dev/null || true); \
-	pids=$$(printf "%s\n%s\n%s\n" "$$pids_file" "$$pids_go" "$$pids_port" | tr ' ' '\n' | awk 'NF' | sort -u | paste -sd' ' -); \
+	pids_port=$$(fuser "$$port/tcp" 2>/dev/null || true); \
+	pids=$$(printf "%s\n%s\n" "$$pids_file" "$$pids_port" | tr ' ' '\n' | awk 'NF' | sort -u | paste -sd' ' -); \
 	if [ -n "$$pids" ]; then \
-		echo "Stopping core process(es): $$pids"; \
+		echo "Stopping process(es) on port $$port: $$pids"; \
 		kill $$pids 2>/dev/null || true; \
 		sleep 1; \
 		alive=$$(for pid in $$pids; do kill -0 $$pid 2>/dev/null && echo $$pid; done); \
@@ -34,7 +42,7 @@ stop:
 			kill -9 $$alive 2>/dev/null || true; \
 		fi; \
 	else \
-		echo "No running core process found"; \
+		echo "No running process found on port $$port"; \
 	fi; \
 	rm -f "$(PID_FILE)"
 

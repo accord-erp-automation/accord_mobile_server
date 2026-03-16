@@ -296,36 +296,38 @@ func (c *Client) RemoveCustomerFromItem(ctx context.Context, baseURL, apiKey, ap
 	if customerLink == "" {
 		return fmt.Errorf("customer not found")
 	}
-
-	filtersJSON, _ := json.Marshal([][]interface{}{
-		{"parent", "=", strings.TrimSpace(itemCode)},
-		{"customer_name", "=", customerLink},
-	})
-	params := url.Values{}
-	params.Set("fields", `["name","customer_name"]`)
-	params.Set("filters", string(filtersJSON))
-	params.Set("limit_page_length", "100")
-
-	endpoint := normalized + "/api/resource/Item%20Customer%20Detail?" + params.Encode()
+	endpoint := normalized + "/api/resource/Item/" + url.PathEscape(strings.TrimSpace(itemCode))
 	var payload struct {
-		Data []struct {
-			Name         string `json:"name"`
-			CustomerName string `json:"customer_name"`
+		Data struct {
+			CustomerItems []struct {
+				Name          string `json:"name"`
+				CustomerName  string `json:"customer_name"`
+				CustomerGroup string `json:"customer_group"`
+				RefCode       string `json:"ref_code"`
+			} `json:"customer_items"`
 		} `json:"data"`
 	}
 	if err := c.doJSON(ctx, endpoint, apiKey, apiSecret, &payload); err != nil {
 		return err
 	}
-	for _, row := range payload.Data {
-		if strings.TrimSpace(row.Name) == "" {
+
+	filteredRows := make([]map[string]interface{}, 0, len(payload.Data.CustomerItems))
+	for _, row := range payload.Data.CustomerItems {
+		if strings.EqualFold(strings.TrimSpace(row.CustomerName), customerLink) {
 			continue
 		}
-		deleteEndpoint := normalized + "/api/resource/Item%20Customer%20Detail/" + url.PathEscape(strings.TrimSpace(row.Name))
-		if err := c.doJSONRequest(ctx, http.MethodDelete, deleteEndpoint, apiKey, apiSecret, nil, nil); err != nil {
-			return err
-		}
+		filteredRows = append(filteredRows, map[string]interface{}{
+			"doctype":        "Item Customer Detail",
+			"name":           strings.TrimSpace(row.Name),
+			"customer_name":  strings.TrimSpace(row.CustomerName),
+			"customer_group": strings.TrimSpace(row.CustomerGroup),
+			"ref_code":       strings.TrimSpace(row.RefCode),
+		})
 	}
-	return nil
+
+	return c.doJSONRequest(ctx, http.MethodPut, endpoint, apiKey, apiSecret, map[string]interface{}{
+		"customer_items": filteredRows,
+	}, nil)
 }
 
 func (c *Client) itemMatchesCustomer(ctx context.Context, normalized, apiKey, apiSecret, itemCode string, customerKeys map[string]struct{}) (bool, Item, error) {

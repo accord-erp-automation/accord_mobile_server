@@ -1088,6 +1088,16 @@ func getStringValue(value interface{}) string {
 	switch typed := value.(type) {
 	case string:
 		return typed
+	case float64:
+		return strconv.Itoa(int(typed))
+	case float32:
+		return strconv.Itoa(int(typed))
+	case int:
+		return strconv.Itoa(typed)
+	case int32:
+		return strconv.Itoa(int(typed))
+	case int64:
+		return strconv.FormatInt(typed, 10)
 	default:
 		return ""
 	}

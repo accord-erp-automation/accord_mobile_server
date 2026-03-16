@@ -133,6 +133,14 @@ func (s *adminSuppliersERPStub) ListDeliveryNoteCommentsBatch(ctx context.Contex
 	return map[string][]erpnext.Comment{}, nil
 }
 
+func (s *adminSuppliersERPStub) EnsureDeliveryNoteStateFields(ctx context.Context, baseURL, apiKey, apiSecret string) error {
+	return nil
+}
+
+func (s *adminSuppliersERPStub) UpdateDeliveryNoteState(ctx context.Context, baseURL, apiKey, apiSecret, name string, update erpnext.DeliveryNoteStateUpdate) error {
+	return nil
+}
+
 func (s *adminSuppliersERPStub) ListAssignedSupplierItems(ctx context.Context, baseURL, apiKey, apiSecret, supplier string, limit int) ([]erpnext.Item, error) {
 	if s.listAssignedSupplierItems != nil {
 		return s.listAssignedSupplierItems(ctx, baseURL, apiKey, apiSecret, supplier, limit)
@@ -302,6 +310,8 @@ func TestNotificationDetailSupportsCustomerDeliveryResultEvents(t *testing.T) {
 				UOM:          "Nos",
 				PostingDate:  "2026-03-15",
 				DocStatus:    1,
+				AccordFlowState:    "1",
+				AccordCustomerState: "1",
 			}, nil
 		},
 		listDeliveryNoteComments: func(ctx context.Context, baseURL, apiKey, apiSecret, name string, limit int) ([]erpnext.Comment, error) {

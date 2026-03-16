@@ -17,23 +17,15 @@ func TestBuildCustomerDeliveryResultEventAccepted(t *testing.T) {
 		UOM:          "Nos",
 		PostingDate:  "2026-03-14",
 		DocStatus:    1,
-	}
-	comments := []erpnext.Comment{
-		{
-			ID:      "LIFECYCLE-1",
-			Content: erpnext.BuildDeliveryLifecycleComment("submitted", "werka"),
-		},
-		{
-			ID:      "COMMENT-1",
-			Content: erpnext.UpsertCustomerDecisionInRemarks("", "confirmed", ""),
-		},
+		AccordFlowState:    "1",
+		AccordCustomerState: "1",
 	}
 
-	record, ok := buildCustomerDeliveryResultEvent(item, comments)
+	record, ok := buildCustomerDeliveryResultEvent(item)
 	if !ok {
 		t.Fatalf("expected accepted result event")
 	}
-	if record.ID != customerDeliveryResultEventPrefix+"MAT-DN-0001:COMMENT-1" {
+	if record.ID != customerDeliveryResultEventPrefix+"MAT-DN-0001" {
 		t.Fatalf("unexpected event id: %q", record.ID)
 	}
 	if record.EventType != "customer_delivery_confirmed" {
@@ -58,19 +50,12 @@ func TestBuildCustomerDeliveryResultEventRejected(t *testing.T) {
 		UOM:          "Nos",
 		PostingDate:  "2026-03-14",
 		DocStatus:    1,
-	}
-	comments := []erpnext.Comment{
-		{
-			ID:      "LIFECYCLE-2",
-			Content: erpnext.BuildDeliveryLifecycleComment("submitted", "werka"),
-		},
-		{
-			ID:      "COMMENT-2",
-			Content: erpnext.UpsertCustomerDecisionInRemarks("", "rejected", "Qabul qilinmadi"),
-		},
+		AccordFlowState:    "1",
+		AccordCustomerState: "2",
+		AccordCustomerReason: "Qabul qilinmadi",
 	}
 
-	record, ok := buildCustomerDeliveryResultEvent(item, comments)
+	record, ok := buildCustomerDeliveryResultEvent(item)
 	if !ok {
 		t.Fatalf("expected rejected result event")
 	}
@@ -100,14 +85,7 @@ func TestBuildCustomerDeliveryResultEventSkipsPending(t *testing.T) {
 		PostingDate:  "2026-03-14",
 		DocStatus:    0,
 	}
-	comments := []erpnext.Comment{
-		{
-			ID:      "COMMENT-3",
-			Content: erpnext.UpsertCustomerDecisionInRemarks("", "pending", ""),
-		},
-	}
-
-	if _, ok := buildCustomerDeliveryResultEvent(item, comments); ok {
+	if _, ok := buildCustomerDeliveryResultEvent(item); ok {
 		t.Fatalf("pending delivery should not produce result event")
 	}
 }

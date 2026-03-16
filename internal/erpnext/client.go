@@ -90,18 +90,30 @@ type DeliveryNoteResult struct {
 	Name string
 }
 
+type DeliveryNoteStateUpdate struct {
+	FlowState     string
+	CustomerState string
+	CustomerReason string
+	DeliveryActor string
+}
+
 type DeliveryNoteDraft struct {
-	Name         string
-	Customer     string
-	CustomerName string
-	ItemCode     string
-	ItemName     string
-	Qty          float64
-	UOM          string
-	PostingDate  string
-	Status       string
-	DocStatus    int
-	Remarks      string
+	Name               string
+	Customer           string
+	CustomerName       string
+	ItemCode           string
+	ItemName           string
+	Qty                float64
+	UOM                string
+	PostingDate        string
+	Modified           string
+	Status             string
+	DocStatus          int
+	Remarks            string
+	AccordFlowState    string
+	AccordCustomerState string
+	AccordCustomerReason string
+	AccordDeliveryActor string
 }
 
 type Client struct {

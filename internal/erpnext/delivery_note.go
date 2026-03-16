@@ -43,6 +43,9 @@ func (c *Client) SearchCompanies(ctx context.Context, baseURL, apiKey, apiSecret
 }
 
 func (c *Client) CreateDraftDeliveryNote(ctx context.Context, baseURL, apiKey, apiSecret string, input CreateDeliveryNoteInput) (DeliveryNoteResult, error) {
+	if err := c.EnsureDeliveryNoteStateFields(ctx, baseURL, apiKey, apiSecret); err != nil {
+		return DeliveryNoteResult{}, err
+	}
 	normalized, err := normalizeBaseURL(baseURL)
 	if err != nil {
 		return DeliveryNoteResult{}, err
@@ -142,6 +145,90 @@ func (c *Client) CreateAndSubmitDeliveryNote(ctx context.Context, baseURL, apiKe
 		return DeliveryNoteResult{}, err
 	}
 	return result, nil
+}
+
+func (c *Client) EnsureDeliveryNoteStateFields(ctx context.Context, baseURL, apiKey, apiSecret string) error {
+	normalized, err := normalizeBaseURL(baseURL)
+	if err != nil {
+		return err
+	}
+	required := []struct {
+		fieldname string
+		label     string
+		fieldtype string
+		insertAfter string
+	}{
+		{"accord_flow_state", "Accord Flow State", "Int", "remarks"},
+		{"accord_customer_state", "Accord Customer State", "Int", "accord_flow_state"},
+		{"accord_customer_reason", "Accord Customer Reason", "Small Text", "accord_customer_state"},
+		{"accord_delivery_actor", "Accord Delivery Actor", "Data", "accord_customer_reason"},
+	}
+	filtersJSON, _ := json.Marshal([][]interface{}{
+		{"dt", "=", "Delivery Note"},
+		{"fieldname", "in", []string{
+			"accord_flow_state",
+			"accord_customer_state",
+			"accord_customer_reason",
+			"accord_delivery_actor",
+		}},
+	})
+	params := url.Values{}
+	params.Set("fields", `["fieldname"]`)
+	params.Set("filters", string(filtersJSON))
+	params.Set("limit_page_length", "20")
+	var payload struct {
+		Data []struct {
+			Fieldname string `json:"fieldname"`
+		} `json:"data"`
+	}
+	endpoint := normalized + "/api/resource/Custom%20Field?" + params.Encode()
+	if err := c.doJSON(ctx, endpoint, apiKey, apiSecret, &payload); err != nil {
+		return err
+	}
+	existing := map[string]struct{}{}
+	for _, row := range payload.Data {
+		existing[strings.TrimSpace(row.Fieldname)] = struct{}{}
+	}
+	for _, field := range required {
+		if _, ok := existing[field.fieldname]; ok {
+			continue
+		}
+		createEndpoint := normalized + "/api/resource/Custom%20Field"
+		body := map[string]interface{}{
+			"dt":              "Delivery Note",
+			"fieldname":       field.fieldname,
+			"label":           field.label,
+			"fieldtype":       field.fieldtype,
+			"insert_after":    field.insertAfter,
+			"hidden":          1,
+			"read_only":       0,
+			"allow_on_submit": 1,
+			"no_copy":         1,
+		}
+		if err := c.doJSONRequest(ctx, http.MethodPost, createEndpoint, apiKey, apiSecret, body, nil); err != nil {
+			if !strings.Contains(strings.ToLower(err.Error()), "duplicate") {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Client) UpdateDeliveryNoteState(ctx context.Context, baseURL, apiKey, apiSecret, name string, update DeliveryNoteStateUpdate) error {
+	if err := c.EnsureDeliveryNoteStateFields(ctx, baseURL, apiKey, apiSecret); err != nil {
+		return err
+	}
+	normalized, err := normalizeBaseURL(baseURL)
+	if err != nil {
+		return err
+	}
+	endpoint := normalized + "/api/resource/Delivery%20Note/" + url.PathEscape(strings.TrimSpace(name))
+	return c.doJSONRequest(ctx, http.MethodPut, endpoint, apiKey, apiSecret, map[string]string{
+		"accord_flow_state":      strings.TrimSpace(update.FlowState),
+		"accord_customer_state":  strings.TrimSpace(update.CustomerState),
+		"accord_customer_reason": strings.TrimSpace(update.CustomerReason),
+		"accord_delivery_actor":  strings.TrimSpace(update.DeliveryActor),
+	}, nil)
 }
 
 func (c *Client) UpdateDeliveryNoteRemarks(ctx context.Context, baseURL, apiKey, apiSecret, name, remarks string) error {
@@ -248,6 +335,9 @@ func (c *Client) ListCustomerDeliveryNotes(ctx context.Context, baseURL, apiKey,
 }
 
 func (c *Client) ListCustomerDeliveryNotesPage(ctx context.Context, baseURL, apiKey, apiSecret, customer string, limit, offset int) ([]DeliveryNoteDraft, error) {
+	if err := c.EnsureDeliveryNoteStateFields(ctx, baseURL, apiKey, apiSecret); err != nil {
+		return nil, err
+	}
 	normalized, err := normalizeBaseURL(baseURL)
 	if err != nil {
 		return nil, err
@@ -261,7 +351,7 @@ func (c *Client) ListCustomerDeliveryNotesPage(ctx context.Context, baseURL, api
 	})
 
 	params := url.Values{}
-	params.Set("fields", `["name","customer","customer_name","posting_date","status","docstatus","items"]`)
+	params.Set("fields", `["name","customer","customer_name","posting_date","modified","status","docstatus","remarks","accord_flow_state","accord_customer_state","accord_customer_reason","accord_delivery_actor","items"]`)
 	params.Set("filters", string(filtersJSON))
 	params.Set("limit_page_length", fmt.Sprintf("%d", limit))
 	if offset > 0 {
@@ -296,6 +386,9 @@ func (c *Client) ListCustomerDeliveryNotesPage(ctx context.Context, baseURL, api
 }
 
 func (c *Client) GetDeliveryNote(ctx context.Context, baseURL, apiKey, apiSecret, name string) (DeliveryNoteDraft, error) {
+	if err := c.EnsureDeliveryNoteStateFields(ctx, baseURL, apiKey, apiSecret); err != nil {
+		return DeliveryNoteDraft{}, err
+	}
 	normalized, err := normalizeBaseURL(baseURL)
 	if err != nil {
 		return DeliveryNoteDraft{}, err
@@ -312,13 +405,18 @@ func (c *Client) GetDeliveryNote(ctx context.Context, baseURL, apiKey, apiSecret
 
 func mapDeliveryNoteDraft(doc map[string]interface{}) (DeliveryNoteDraft, error) {
 	result := DeliveryNoteDraft{
-		Name:         getStringValue(doc["name"]),
-		Customer:     getStringValue(doc["customer"]),
-		CustomerName: getStringValue(doc["customer_name"]),
-		PostingDate:  getStringValue(doc["posting_date"]),
-		Status:       getStringValue(doc["status"]),
-		DocStatus:    int(getFloatValue(doc["docstatus"])),
-		Remarks:      getStringValue(doc["remarks"]),
+		Name:                 getStringValue(doc["name"]),
+		Customer:             getStringValue(doc["customer"]),
+		CustomerName:         getStringValue(doc["customer_name"]),
+		PostingDate:          getStringValue(doc["posting_date"]),
+		Modified:             getStringValue(doc["modified"]),
+		Status:               getStringValue(doc["status"]),
+		DocStatus:            int(getFloatValue(doc["docstatus"])),
+		Remarks:              getStringValue(doc["remarks"]),
+		AccordFlowState:      getStringValue(doc["accord_flow_state"]),
+		AccordCustomerState:  getStringValue(doc["accord_customer_state"]),
+		AccordCustomerReason: getStringValue(doc["accord_customer_reason"]),
+		AccordDeliveryActor:  getStringValue(doc["accord_delivery_actor"]),
 	}
 	items, _ := doc["items"].([]interface{})
 	if len(items) == 0 {

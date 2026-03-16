@@ -438,6 +438,24 @@ func (f *fakeERPClient) SubmitDeliveryNote(_ context.Context, _, _, _, name stri
 	return nil
 }
 
+func (f *fakeERPClient) EnsureDeliveryNoteStateFields(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (f *fakeERPClient) UpdateDeliveryNoteState(_ context.Context, _, _, _, name string, update erpnext.DeliveryNoteStateUpdate) error {
+	for index, item := range f.customerDeliveryNotes {
+		if item.Name == name {
+			item.AccordFlowState = update.FlowState
+			item.AccordCustomerState = update.CustomerState
+			item.AccordCustomerReason = update.CustomerReason
+			item.AccordDeliveryActor = update.DeliveryActor
+			f.customerDeliveryNotes[index] = item
+			return nil
+		}
+	}
+	return nil
+}
+
 func (f *fakeERPClient) UpdateDeliveryNoteRemarks(_ context.Context, _, _, _, name, remarks string) error {
 	for index, item := range f.customerDeliveryNotes {
 		if item.Name == name {
@@ -1618,6 +1636,8 @@ func TestServerCustomerSummaryAndHistory(t *testing.T) {
 					PostingDate:  "2026-03-14",
 					Status:       "Submitted",
 					DocStatus:    1,
+					AccordFlowState:    "1",
+					AccordCustomerState: "0",
 				},
 				{
 					Name:         "MAT-DN-0002",
@@ -1630,6 +1650,8 @@ func TestServerCustomerSummaryAndHistory(t *testing.T) {
 					PostingDate:  "2026-03-14",
 					Status:       "Submitted",
 					DocStatus:    1,
+					AccordFlowState:    "1",
+					AccordCustomerState: "1",
 				},
 				{
 					Name:         "MAT-DN-0003",
@@ -1642,6 +1664,9 @@ func TestServerCustomerSummaryAndHistory(t *testing.T) {
 					PostingDate:  "2026-03-14",
 					Status:       "Submitted",
 					DocStatus:    1,
+					AccordFlowState:    "1",
+					AccordCustomerState: "2",
+					AccordCustomerReason: "xato",
 				},
 				{
 					Name:         "MAT-DN-0004",
@@ -1754,6 +1779,8 @@ func TestServerCustomerDetailAndRespond(t *testing.T) {
 					PostingDate:  "2026-03-14",
 					Status:       "Submitted",
 					DocStatus:    1,
+					AccordFlowState:    "1",
+					AccordCustomerState: "0",
 				},
 			},
 		},
@@ -1853,6 +1880,8 @@ func TestServerWerkaAndAdminHistoryIncludeCustomerConfirmedResult(t *testing.T) 
 					PostingDate:  "2026-03-14",
 					Status:       "Submitted",
 					DocStatus:    1,
+					AccordFlowState:    "1",
+					AccordCustomerState: "1",
 				},
 				{
 					Name:         "MAT-DN-0012",
@@ -1865,6 +1894,9 @@ func TestServerWerkaAndAdminHistoryIncludeCustomerConfirmedResult(t *testing.T) 
 					PostingDate:  "2026-03-14",
 					Status:       "Submitted",
 					DocStatus:    1,
+					AccordFlowState:    "1",
+					AccordCustomerState: "2",
+					AccordCustomerReason: "Qabul qilinmadi",
 				},
 			},
 			comments: map[string][]erpnext.Comment{

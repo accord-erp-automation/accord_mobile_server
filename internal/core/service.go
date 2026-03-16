@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html"
 	"regexp"
+	"strconv"
 	"sort"
 	"strings"
 	"sync"
@@ -28,6 +29,14 @@ var (
 const (
 	supplierAckEventPrefix            = "supplier_ack:"
 	customerDeliveryResultEventPrefix = "customer_delivery_result:"
+	deliveryFlowStateNone             = 0
+	deliveryFlowStateSubmitted        = 1
+	deliveryFlowStateReturned         = 2
+	customerStatePending              = 0
+	customerStateConfirmed            = 1
+	customerStateRejected             = 2
+	deliveryActorUnknown              = 0
+	deliveryActorWerka                = 1
 )
 
 type ERPClient interface {
@@ -75,6 +84,8 @@ type ERPClient interface {
 	CreateDraftDeliveryNote(ctx context.Context, baseURL, apiKey, apiSecret string, input erpnext.CreateDeliveryNoteInput) (erpnext.DeliveryNoteResult, error)
 	CreateAndSubmitDeliveryNote(ctx context.Context, baseURL, apiKey, apiSecret string, input erpnext.CreateDeliveryNoteInput) (erpnext.DeliveryNoteResult, error)
 	SubmitDeliveryNote(ctx context.Context, baseURL, apiKey, apiSecret, name string) error
+	EnsureDeliveryNoteStateFields(ctx context.Context, baseURL, apiKey, apiSecret string) error
+	UpdateDeliveryNoteState(ctx context.Context, baseURL, apiKey, apiSecret, name string, update erpnext.DeliveryNoteStateUpdate) error
 	UpdateDeliveryNoteRemarks(ctx context.Context, baseURL, apiKey, apiSecret, name, remarks string) error
 	ConfirmAndSubmitPurchaseReceipt(ctx context.Context, baseURL, apiKey, apiSecret, name string, acceptedQty, returnedQty float64, returnReason, returnComment string) (erpnext.PurchaseReceiptSubmissionResult, error)
 	UploadSupplierImage(ctx context.Context, baseURL, apiKey, apiSecret, supplierID, filename, contentType string, content []byte) (string, error)
@@ -696,12 +707,8 @@ func (a *ERPAuthenticator) customerResultEvents(ctx context.Context) ([]Dispatch
 		if len(deliveryNotes) == 0 {
 			continue
 		}
-		commentsByName, err := a.erp.ListDeliveryNoteCommentsBatch(ctx, a.baseURL, a.apiKey, a.apiSecret, deliveryNoteNames(deliveryNotes), 50)
-		if err != nil {
-			return nil, err
-		}
 		for _, item := range deliveryNotes {
-			record, ok := buildCustomerDeliveryResultEvent(item, commentsByName[item.Name])
+			record, ok := buildCustomerDeliveryResultEvent(item)
 			if !ok {
 				continue
 			}
@@ -900,18 +907,10 @@ func (a *ERPAuthenticator) NotificationDetail(ctx context.Context, principal Pri
 		}
 	}
 	if strings.HasPrefix(trimmedReceiptID, customerDeliveryResultEventPrefix) {
-		parts := strings.SplitN(
-			strings.TrimPrefix(trimmedReceiptID, customerDeliveryResultEventPrefix),
-			":",
-			2,
-		)
+		parts := strings.SplitN(strings.TrimPrefix(trimmedReceiptID, customerDeliveryResultEventPrefix), ":", 2)
 		deliveryNoteID := ""
-		commentID := ""
 		if len(parts) > 0 {
 			deliveryNoteID = strings.TrimSpace(parts[0])
-		}
-		if len(parts) > 1 {
-			commentID = strings.TrimSpace(parts[1])
 		}
 		if deliveryNoteID == "" {
 			return NotificationDetail{}, fmt.Errorf("delivery note id is required")
@@ -938,13 +937,12 @@ func (a *ERPAuthenticator) NotificationDetail(ctx context.Context, principal Pri
 			return NotificationDetail{}, err
 		}
 
-		record, ok := buildCustomerDeliveryResultEvent(draft, comments)
+		record, ok := buildCustomerDeliveryResultEvent(draft)
 		if !ok {
-			record = mapDeliveryNoteToDispatchRecord(draft, comments)
+			record = mapDeliveryNoteToDispatchRecord(draft)
 			record.ID = strings.TrimSpace(receiptID)
-		}
-		if commentID != "" {
-			record.ID = customerDeliveryResultEventPrefix + strings.TrimSpace(draft.Name) + ":" + commentID
+		} else if strings.TrimSpace(receiptID) != "" {
+			record.ID = strings.TrimSpace(receiptID)
 		}
 
 		result := make([]NotificationComment, 0, len(comments))
@@ -1136,21 +1134,18 @@ func (a *ERPAuthenticator) CreateWerkaCustomerIssue(ctx context.Context, princip
 	if err != nil {
 		return WerkaCustomerIssueRecord{}, err
 	}
-	_ = a.erp.AddDeliveryNoteComment(
+	_ = a.erp.UpdateDeliveryNoteState(
 		ctx,
 		a.baseURL,
 		a.apiKey,
 		a.apiSecret,
 		result.Name,
-		erpnext.BuildDeliveryLifecycleComment("submitted", "werka"),
-	)
-	_ = a.erp.AddDeliveryNoteComment(
-		ctx,
-		a.baseURL,
-		a.apiKey,
-		a.apiSecret,
-		result.Name,
-		erpnext.UpsertCustomerDecisionInRemarks("", "pending", ""),
+		erpnext.DeliveryNoteStateUpdate{
+			FlowState:      strconv.Itoa(deliveryFlowStateSubmitted),
+			CustomerState:  strconv.Itoa(customerStatePending),
+			CustomerReason: "",
+			DeliveryActor:  strconv.Itoa(deliveryActorWerka),
+		},
 	)
 	return WerkaCustomerIssueRecord{
 		EntryID:      result.Name,
@@ -1265,16 +1260,12 @@ func (a *ERPAuthenticator) CustomerHistory(ctx context.Context, principal Princi
 	if err != nil {
 		return nil, err
 	}
-	commentsByName, err := a.erp.ListDeliveryNoteCommentsBatch(ctx, a.baseURL, a.apiKey, a.apiSecret, deliveryNoteNames(items), 50)
-	if err != nil {
-		return nil, err
-	}
 	result := make([]DispatchRecord, 0, len(items))
 	for _, item := range items {
-		if !customerDeliveryVisible(item, commentsByName[item.Name]) {
+		if !customerDeliveryVisible(item) {
 			continue
 		}
-		result = append(result, mapDeliveryNoteToDispatchRecord(item, commentsByName[item.Name]))
+		result = append(result, mapDeliveryNoteToDispatchRecord(item))
 	}
 	return result, nil
 }
@@ -1285,16 +1276,11 @@ func (a *ERPAuthenticator) CustomerSummary(ctx context.Context, principal Princi
 		return CustomerHomeSummary{}, err
 	}
 	summary := CustomerHomeSummary{}
-	commentsByName, err := a.erp.ListDeliveryNoteCommentsBatch(ctx, a.baseURL, a.apiKey, a.apiSecret, deliveryNoteNames(items), 50)
-	if err != nil {
-		return CustomerHomeSummary{}, err
-	}
 	for _, item := range items {
-		comments := commentsByName[item.Name]
-		if !customerDeliveryVisible(item, comments) {
+		if !customerDeliveryVisible(item) {
 			continue
 		}
-		switch customerDeliveryStatus(item, comments) {
+		switch customerDeliveryStatus(item) {
 		case "accepted":
 			summary.ConfirmedCount++
 		case "rejected":
@@ -1311,24 +1297,19 @@ func (a *ERPAuthenticator) CustomerStatusDetails(ctx context.Context, principal 
 	if err != nil {
 		return nil, err
 	}
-	commentsByName, err := a.erp.ListDeliveryNoteCommentsBatch(ctx, a.baseURL, a.apiKey, a.apiSecret, deliveryNoteNames(items), 50)
-	if err != nil {
-		return nil, err
-	}
 	filterKind := strings.TrimSpace(kind)
 	if filterKind == "confirmed" {
 		filterKind = "accepted"
 	}
 	result := make([]DispatchRecord, 0, len(items))
 	for _, item := range items {
-		comments := commentsByName[item.Name]
-		if !customerDeliveryVisible(item, comments) {
+		if !customerDeliveryVisible(item) {
 			continue
 		}
-		if customerDeliveryStatus(item, comments) != filterKind {
+		if customerDeliveryStatus(item) != filterKind {
 			continue
 		}
-		result = append(result, mapDeliveryNoteToDispatchRecord(item, comments))
+		result = append(result, mapDeliveryNoteToDispatchRecord(item))
 	}
 	return result, nil
 }
@@ -1341,13 +1322,9 @@ func (a *ERPAuthenticator) CustomerDeliveryDetail(ctx context.Context, principal
 	if strings.TrimSpace(draft.Customer) != strings.TrimSpace(principal.Ref) {
 		return CustomerDeliveryDetail{}, ErrUnauthorized
 	}
-	comments, err := a.erp.ListDeliveryNoteComments(ctx, a.baseURL, a.apiKey, a.apiSecret, draft.Name, 50)
-	if err != nil {
-		return CustomerDeliveryDetail{}, err
-	}
-	pending := customerDeliveryStatus(draft, comments) == "pending"
+	pending := customerDeliveryStatus(draft) == "pending"
 	return CustomerDeliveryDetail{
-		Record:     mapDeliveryNoteToDispatchRecord(draft, comments),
+		Record:     mapDeliveryNoteToDispatchRecord(draft),
 		CanApprove: pending,
 		CanReject:  pending,
 	}, nil
@@ -1361,167 +1338,70 @@ func (a *ERPAuthenticator) CustomerRespondDelivery(ctx context.Context, principa
 	if strings.TrimSpace(draft.Customer) != strings.TrimSpace(principal.Ref) {
 		return CustomerDeliveryDetail{}, ErrUnauthorized
 	}
-	comments, err := a.erp.ListDeliveryNoteComments(ctx, a.baseURL, a.apiKey, a.apiSecret, draft.Name, 50)
-	if err != nil {
-		return CustomerDeliveryDetail{}, err
-	}
-	if customerDeliveryStatus(draft, comments) != "pending" {
+	if customerDeliveryStatus(draft) != "pending" {
 		return CustomerDeliveryDetail{}, fmt.Errorf("delivery note is not pending")
 	}
 
-	decisionState := "rejected"
+	decisionState := strconv.Itoa(customerStateRejected)
 	if approve {
-		decisionState = "confirmed"
-	}
-	commentBody := erpnext.UpsertCustomerDecisionInRemarks("", decisionState, reason)
-	if latestDeliveryLifecycleState(comments) != "submitted" {
-		lifecycleComment := erpnext.BuildDeliveryLifecycleComment("submitted", "werka")
-		if err := a.erp.AddDeliveryNoteComment(
-			ctx,
-			a.baseURL,
-			a.apiKey,
-			a.apiSecret,
-			draft.Name,
-			lifecycleComment,
-		); err == nil {
-			comments = append(comments, erpnext.Comment{
-				ID:        "customer-local-lifecycle",
-				Content:   lifecycleComment,
-				CreatedAt: time.Now().UTC().Format("2006-01-02 15:04:05"),
-			})
-		}
+		decisionState = strconv.Itoa(customerStateConfirmed)
 	}
 
-	if approve {
-		if err := a.erp.AddDeliveryNoteComment(
-			ctx,
-			a.baseURL,
-			a.apiKey,
-			a.apiSecret,
-			draft.Name,
-			commentBody,
-		); err != nil {
-			return CustomerDeliveryDetail{}, err
-		}
-		comments = append(comments, erpnext.Comment{
-			ID:        "customer-local-confirmed",
-			Content:   commentBody,
-			CreatedAt: time.Now().UTC().Format("2006-01-02 15:04:05"),
-		})
-		return CustomerDeliveryDetail{
-			Record:     mapDeliveryNoteToDispatchRecord(draft, comments),
-			CanApprove: false,
-			CanReject:  false,
-		}, nil
-	}
-
-	if err := a.erp.AddDeliveryNoteComment(
+	if err := a.erp.UpdateDeliveryNoteState(
 		ctx,
 		a.baseURL,
 		a.apiKey,
 		a.apiSecret,
 		draft.Name,
-		commentBody,
+		erpnext.DeliveryNoteStateUpdate{
+			FlowState:      strconv.Itoa(deliveryFlowStateSubmitted),
+			CustomerState:  decisionState,
+			CustomerReason: strings.TrimSpace(reason),
+			DeliveryActor:  strconv.Itoa(deliveryActorWerka),
+		},
 	); err != nil {
 		return CustomerDeliveryDetail{}, err
 	}
-	comments = append(comments, erpnext.Comment{
-		ID:        "customer-local-rejected",
-		Content:   commentBody,
-		CreatedAt: time.Now().UTC().Format("2006-01-02 15:04:05"),
-	})
+	draft.AccordFlowState = strconv.Itoa(deliveryFlowStateSubmitted)
+	draft.AccordCustomerState = decisionState
+	draft.AccordCustomerReason = strings.TrimSpace(reason)
+	draft.AccordDeliveryActor = strconv.Itoa(deliveryActorWerka)
 	return CustomerDeliveryDetail{
-		Record:     mapDeliveryNoteToDispatchRecord(draft, comments),
+		Record:     mapDeliveryNoteToDispatchRecord(draft),
 		CanApprove: false,
 		CanReject:  false,
 	}, nil
 }
 
-func customerDeliveryStatus(item erpnext.DeliveryNoteDraft, comments []erpnext.Comment) string {
+func customerDeliveryStatus(item erpnext.DeliveryNoteDraft) string {
 	if item.DocStatus != 1 {
 		return "draft"
 	}
-	if latestDeliveryLifecycleState(comments) != "submitted" {
+	if deliveryFlowStateValue(item) != deliveryFlowStateSubmitted {
 		return "pending"
 	}
-	state := latestCustomerDecisionState(comments)
-	switch {
-	case state == "rejected":
+	switch customerStateValue(item) {
+	case customerStateRejected:
 		return "rejected"
-	case state == "confirmed":
+	case customerStateConfirmed:
 		return "accepted"
 	default:
 		return "pending"
 	}
 }
 
-func customerDeliveryVisible(item erpnext.DeliveryNoteDraft, comments []erpnext.Comment) bool {
-	return item.DocStatus == 1
+func customerDeliveryVisible(item erpnext.DeliveryNoteDraft) bool {
+	return item.DocStatus == 1 && deliveryFlowStateValue(item) == deliveryFlowStateSubmitted
 }
 
-func latestDeliveryLifecycleState(comments []erpnext.Comment) string {
-	for index := len(comments) - 1; index >= 0; index-- {
-		if state := strings.TrimSpace(erpnext.ExtractDeliveryLifecycleState(comments[index].Content)); state != "" {
-			return state
-		}
-	}
-	return ""
-}
-
-func latestCustomerDecisionState(comments []erpnext.Comment) string {
-	for index := len(comments) - 1; index >= 0; index-- {
-		if state := strings.TrimSpace(erpnext.ExtractCustomerDecisionState(comments[index].Content)); state != "" {
-			return state
-		}
-	}
-	return ""
-}
-
-func latestCustomerDecisionReason(comments []erpnext.Comment) string {
-	for index := len(comments) - 1; index >= 0; index-- {
-		if reason := strings.TrimSpace(erpnext.ExtractCustomerDecisionReason(comments[index].Content)); reason != "" {
-			return reason
-		}
-	}
-	return ""
-}
-
-func latestCustomerDecisionCommentID(comments []erpnext.Comment) string {
-	for index := len(comments) - 1; index >= 0; index-- {
-		comment := comments[index]
-		if state := strings.TrimSpace(erpnext.ExtractCustomerDecisionState(comment.Content)); state != "" {
-			return strings.TrimSpace(comment.ID)
-		}
-	}
-	return ""
-}
-
-func latestCustomerDecisionCreatedAt(comments []erpnext.Comment) string {
-	for index := len(comments) - 1; index >= 0; index-- {
-		comment := comments[index]
-		if state := strings.TrimSpace(erpnext.ExtractCustomerDecisionState(comment.Content)); state != "" {
-			return strings.TrimSpace(comment.CreatedAt)
-		}
-	}
-	return ""
-}
-
-func buildCustomerDeliveryResultEvent(item erpnext.DeliveryNoteDraft, comments []erpnext.Comment) (DispatchRecord, bool) {
-	state := customerDeliveryStatus(item, comments)
+func buildCustomerDeliveryResultEvent(item erpnext.DeliveryNoteDraft) (DispatchRecord, bool) {
+	state := customerDeliveryStatus(item)
 	if state != "accepted" && state != "rejected" {
 		return DispatchRecord{}, false
 	}
 
-	commentID := latestCustomerDecisionCommentID(comments)
-	if commentID == "" {
-		return DispatchRecord{}, false
-	}
-
-	base := mapDeliveryNoteToDispatchRecord(item, comments)
-	base.ID = customerDeliveryResultEventPrefix + strings.TrimSpace(item.Name) + ":" + commentID
-	if createdAt := latestCustomerDecisionCreatedAt(comments); createdAt != "" {
-		base.CreatedLabel = createdAt
-	}
+	base := mapDeliveryNoteToDispatchRecord(item)
+	base.ID = customerDeliveryResultEventPrefix + strings.TrimSpace(item.Name)
 	if state == "accepted" {
 		base.EventType = "customer_delivery_confirmed"
 		base.Highlight = "Customer mahsulotni qabul qildi"
@@ -1531,6 +1411,35 @@ func buildCustomerDeliveryResultEvent(item erpnext.DeliveryNoteDraft, comments [
 	base.EventType = "customer_delivery_rejected"
 	base.Highlight = "Customer mahsulotni rad etdi"
 	return base, true
+}
+
+func deliveryFlowStateValue(item erpnext.DeliveryNoteDraft) int {
+	return parseAccordInt(item.AccordFlowState, deliveryFlowStateNone)
+}
+
+func customerStateValue(item erpnext.DeliveryNoteDraft) int {
+	return parseAccordInt(item.AccordCustomerState, customerStatePending)
+}
+
+func parseAccordInt(raw string, fallback int) int {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func deliveryNoteNames(items []erpnext.DeliveryNoteDraft) []string {
@@ -1915,8 +1824,8 @@ func mapPurchaseReceiptToDispatchRecord(item erpnext.PurchaseReceiptDraft, fallb
 	}
 }
 
-func mapDeliveryNoteToDispatchRecord(item erpnext.DeliveryNoteDraft, comments []erpnext.Comment) DispatchRecord {
-	status := customerDeliveryStatus(item, comments)
+func mapDeliveryNoteToDispatchRecord(item erpnext.DeliveryNoteDraft) DispatchRecord {
+	status := customerDeliveryStatus(item)
 	acceptedQty := 0.0
 	note := ""
 	switch status {
@@ -1925,7 +1834,7 @@ func mapDeliveryNoteToDispatchRecord(item erpnext.DeliveryNoteDraft, comments []
 		note = "Customer tasdiqladi."
 	case "rejected":
 		note = "Customer rad etdi."
-		if reason := strings.TrimSpace(latestCustomerDecisionReason(comments)); reason != "" {
+		if reason := strings.TrimSpace(item.AccordCustomerReason); reason != "" {
 			note += " Sabab: " + reason
 		}
 	}
@@ -1940,7 +1849,7 @@ func mapDeliveryNoteToDispatchRecord(item erpnext.DeliveryNoteDraft, comments []
 		AcceptedQty:  acceptedQty,
 		Note:         note,
 		Status:       status,
-		CreatedLabel: item.PostingDate,
+		CreatedLabel: firstNonEmpty(item.Modified, item.PostingDate),
 	}
 }
 

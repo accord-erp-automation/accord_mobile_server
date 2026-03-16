@@ -10,10 +10,6 @@ import (
 )
 
 const (
-	accordCustomerDecisionPrefix       = "Accord Customer Holat:"
-	accordCustomerDecisionReasonPrefix = "Accord Customer Sabab:"
-	accordDeliveryLifecyclePrefix      = "Accord Delivery Lifecycle:"
-	accordDeliveryActorPrefix          = "Accord Delivery Actor:"
 	compactCustomerDecisionPrefix      = "AC:"
 	compactCustomerReasonPrefix        = "AR:"
 	compactDeliveryLifecyclePrefix     = "AD:"
@@ -347,9 +343,7 @@ func UpsertCustomerDecisionInRemarks(existingNote, state, reason string) string 
 		if trimmed == "" {
 			continue
 		}
-		if strings.HasPrefix(trimmed, accordCustomerDecisionPrefix) ||
-			strings.HasPrefix(trimmed, accordCustomerDecisionReasonPrefix) ||
-			strings.HasPrefix(trimmed, compactCustomerDecisionPrefix) ||
+		if strings.HasPrefix(trimmed, compactCustomerDecisionPrefix) ||
 			strings.HasPrefix(trimmed, compactCustomerReasonPrefix) {
 			continue
 		}
@@ -368,9 +362,6 @@ func ExtractCustomerDecisionState(remarks string) string {
 	lines := strings.Split(strings.ReplaceAll(remarks, "\r\n", "\n"), "\n")
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, accordCustomerDecisionPrefix) {
-			return normalizeCustomerDecisionState(strings.TrimSpace(strings.TrimPrefix(trimmed, accordCustomerDecisionPrefix)))
-		}
 		if strings.HasPrefix(trimmed, compactCustomerDecisionPrefix) {
 			return normalizeCustomerDecisionState(strings.TrimSpace(strings.TrimPrefix(trimmed, compactCustomerDecisionPrefix)))
 		}
@@ -382,9 +373,6 @@ func ExtractCustomerDecisionReason(remarks string) string {
 	lines := strings.Split(strings.ReplaceAll(remarks, "\r\n", "\n"), "\n")
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, accordCustomerDecisionReasonPrefix) {
-			return strings.TrimSpace(strings.TrimPrefix(trimmed, accordCustomerDecisionReasonPrefix))
-		}
 		if strings.HasPrefix(trimmed, compactCustomerReasonPrefix) {
 			return strings.TrimSpace(strings.TrimPrefix(trimmed, compactCustomerReasonPrefix))
 		}
@@ -407,9 +395,6 @@ func ExtractDeliveryLifecycleState(remarks string) string {
 	lines := strings.Split(strings.ReplaceAll(remarks, "\r\n", "\n"), "\n")
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, accordDeliveryLifecyclePrefix) {
-			return normalizeDeliveryLifecycleState(strings.TrimSpace(strings.TrimPrefix(trimmed, accordDeliveryLifecyclePrefix)))
-		}
 		if strings.HasPrefix(trimmed, compactDeliveryLifecyclePrefix) {
 			return normalizeDeliveryLifecycleState(strings.TrimSpace(strings.TrimPrefix(trimmed, compactDeliveryLifecyclePrefix)))
 		}

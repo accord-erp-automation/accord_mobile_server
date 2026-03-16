@@ -1142,6 +1142,14 @@ func (a *ERPAuthenticator) CreateWerkaCustomerIssue(ctx context.Context, princip
 		a.apiKey,
 		a.apiSecret,
 		result.Name,
+		erpnext.BuildDeliveryLifecycleComment("submitted", "werka"),
+	)
+	_ = a.erp.AddDeliveryNoteComment(
+		ctx,
+		a.baseURL,
+		a.apiKey,
+		a.apiSecret,
+		result.Name,
 		erpnext.UpsertCustomerDecisionInRemarks("", "pending", ""),
 	)
 	return WerkaCustomerIssueRecord{

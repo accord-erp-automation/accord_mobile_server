@@ -12,6 +12,8 @@ import (
 const (
 	accordCustomerDecisionPrefix       = "Accord Customer Holat:"
 	accordCustomerDecisionReasonPrefix = "Accord Customer Sabab:"
+	accordDeliveryLifecyclePrefix      = "Accord Delivery Lifecycle:"
+	accordDeliveryActorPrefix          = "Accord Delivery Actor:"
 )
 
 func (c *Client) SearchCompanies(ctx context.Context, baseURL, apiKey, apiSecret string, limit int) ([]Company, error) {
@@ -376,4 +378,15 @@ func ExtractCustomerDecisionReason(remarks string) string {
 		}
 	}
 	return ""
+}
+
+func BuildDeliveryLifecycleComment(state, actor string) string {
+	lines := make([]string, 0, 2)
+	if strings.TrimSpace(state) != "" {
+		lines = append(lines, accordDeliveryLifecyclePrefix+" "+strings.TrimSpace(state))
+	}
+	if strings.TrimSpace(actor) != "" {
+		lines = append(lines, accordDeliveryActorPrefix+" "+strings.TrimSpace(actor))
+	}
+	return strings.Join(lines, "\n")
 }

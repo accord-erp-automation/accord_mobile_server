@@ -53,7 +53,7 @@ func TestBuildCustomerDeliveryResultEventRejected(t *testing.T) {
 		Qty:          7,
 		UOM:          "Nos",
 		PostingDate:  "2026-03-14",
-		DocStatus:    0,
+		DocStatus:    1,
 	}
 	comments := []erpnext.Comment{
 		{

@@ -301,6 +301,7 @@ func TestNotificationDetailSupportsCustomerDeliveryResultEvents(t *testing.T) {
 				Qty:          3,
 				UOM:          "Nos",
 				PostingDate:  "2026-03-15",
+				DocStatus:    1,
 			}, nil
 		},
 		listDeliveryNoteComments: func(ctx context.Context, baseURL, apiKey, apiSecret, name string, limit int) ([]erpnext.Comment, error) {

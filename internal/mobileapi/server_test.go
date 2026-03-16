@@ -1632,8 +1632,8 @@ func TestServerCustomerSummaryAndHistory(t *testing.T) {
 					Qty:          2,
 					UOM:          "Nos",
 					PostingDate:  "2026-03-14",
-					Status:       "Draft",
-					DocStatus:    0,
+					Status:       "Submitted",
+					DocStatus:    1,
 				},
 				{
 					Name:         "MAT-DN-0004",
@@ -1851,8 +1851,8 @@ func TestServerWerkaAndAdminHistoryIncludeCustomerConfirmedResult(t *testing.T) 
 					Qty:          2,
 					UOM:          "Nos",
 					PostingDate:  "2026-03-14",
-					Status:       "Draft",
-					DocStatus:    0,
+					Status:       "Submitted",
+					DocStatus:    1,
 				},
 			},
 			comments: map[string][]erpnext.Comment{

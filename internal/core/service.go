@@ -1421,24 +1421,21 @@ func (a *ERPAuthenticator) CustomerRespondDelivery(ctx context.Context, principa
 }
 
 func customerDeliveryStatus(item erpnext.DeliveryNoteDraft, comments []erpnext.Comment) string {
+	if item.DocStatus != 1 {
+		return "draft"
+	}
 	state := latestCustomerDecisionState(comments)
 	switch {
 	case state == "rejected":
 		return "rejected"
 	case state == "confirmed":
 		return "accepted"
-	case item.DocStatus == 1:
-		return "pending"
 	default:
-		return "draft"
+		return "pending"
 	}
 }
 
 func customerDeliveryVisible(item erpnext.DeliveryNoteDraft, comments []erpnext.Comment) bool {
-	state := latestCustomerDecisionState(comments)
-	if state == "confirmed" || state == "rejected" {
-		return true
-	}
 	return item.DocStatus == 1
 }
 

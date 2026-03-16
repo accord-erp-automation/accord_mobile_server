@@ -390,3 +390,14 @@ func BuildDeliveryLifecycleComment(state, actor string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+func ExtractDeliveryLifecycleState(remarks string) string {
+	lines := strings.Split(strings.ReplaceAll(remarks, "\r\n", "\n"), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, accordDeliveryLifecyclePrefix) {
+			return strings.ToLower(strings.TrimSpace(strings.TrimPrefix(trimmed, accordDeliveryLifecyclePrefix)))
+		}
+	}
+	return ""
+}

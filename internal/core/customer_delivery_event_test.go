@@ -20,6 +20,10 @@ func TestBuildCustomerDeliveryResultEventAccepted(t *testing.T) {
 	}
 	comments := []erpnext.Comment{
 		{
+			ID:      "LIFECYCLE-1",
+			Content: erpnext.BuildDeliveryLifecycleComment("submitted", "werka"),
+		},
+		{
 			ID:      "COMMENT-1",
 			Content: erpnext.UpsertCustomerDecisionInRemarks("", "confirmed", ""),
 		},
@@ -56,6 +60,10 @@ func TestBuildCustomerDeliveryResultEventRejected(t *testing.T) {
 		DocStatus:    1,
 	}
 	comments := []erpnext.Comment{
+		{
+			ID:      "LIFECYCLE-2",
+			Content: erpnext.BuildDeliveryLifecycleComment("submitted", "werka"),
+		},
 		{
 			ID:      "COMMENT-2",
 			Content: erpnext.UpsertCustomerDecisionInRemarks("", "rejected", "Qabul qilinmadi"),

@@ -1588,11 +1588,19 @@ func TestServerCustomerSummaryAndHistory(t *testing.T) {
 		&fakeERPClient{
 			comments: map[string][]erpnext.Comment{
 				"MAT-DN-0002": {{
+					ID:        "l2",
+					Content:   erpnext.BuildDeliveryLifecycleComment("submitted", "werka"),
+					CreatedAt: "2026-03-14 10:04:00",
+				}, {
 					ID:        "c2",
 					Content:   erpnext.UpsertCustomerDecisionInRemarks("", "confirmed", ""),
 					CreatedAt: "2026-03-14 10:05:00",
 				}},
 				"MAT-DN-0003": {{
+					ID:        "l3",
+					Content:   erpnext.BuildDeliveryLifecycleComment("submitted", "werka"),
+					CreatedAt: "2026-03-14 10:09:00",
+				}, {
 					ID:        "c3",
 					Content:   erpnext.UpsertCustomerDecisionInRemarks("", "rejected", "xato"),
 					CreatedAt: "2026-03-14 10:10:00",
@@ -1725,6 +1733,10 @@ func TestServerCustomerDetailAndRespond(t *testing.T) {
 		&fakeERPClient{
 			comments: map[string][]erpnext.Comment{
 				"MAT-DN-0009": {{
+					ID:        "l1",
+					Content:   erpnext.BuildDeliveryLifecycleComment("submitted", "werka"),
+					CreatedAt: "2026-03-14 09:59:00",
+				}, {
 					ID:        "c1",
 					Content:   erpnext.UpsertCustomerDecisionInRemarks("", "pending", ""),
 					CreatedAt: "2026-03-14 10:00:00",
@@ -1857,11 +1869,19 @@ func TestServerWerkaAndAdminHistoryIncludeCustomerConfirmedResult(t *testing.T) 
 			},
 			comments: map[string][]erpnext.Comment{
 				"MAT-DN-0011": {{
+					ID:        "LIFECYCLE-11",
+					Content:   erpnext.BuildDeliveryLifecycleComment("submitted", "werka"),
+					CreatedAt: "2026-03-14 10:00:00",
+				}, {
 					ID:        "COMMENT-11",
 					Content:   erpnext.UpsertCustomerDecisionInRemarks("", "confirmed", ""),
 					CreatedAt: "2026-03-14 10:10:00",
 				}},
 				"MAT-DN-0012": {{
+					ID:        "LIFECYCLE-12",
+					Content:   erpnext.BuildDeliveryLifecycleComment("submitted", "werka"),
+					CreatedAt: "2026-03-14 10:01:00",
+				}, {
 					ID:        "COMMENT-12",
 					Content:   erpnext.UpsertCustomerDecisionInRemarks("", "rejected", "Qabul qilinmadi"),
 					CreatedAt: "2026-03-14 10:12:00",

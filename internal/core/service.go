@@ -1374,6 +1374,23 @@ func (a *ERPAuthenticator) CustomerRespondDelivery(ctx context.Context, principa
 		decisionState = "confirmed"
 	}
 	commentBody := erpnext.UpsertCustomerDecisionInRemarks("", decisionState, reason)
+	if latestDeliveryLifecycleState(comments) != "submitted" {
+		lifecycleComment := erpnext.BuildDeliveryLifecycleComment("submitted", "werka")
+		if err := a.erp.AddDeliveryNoteComment(
+			ctx,
+			a.baseURL,
+			a.apiKey,
+			a.apiSecret,
+			draft.Name,
+			lifecycleComment,
+		); err == nil {
+			comments = append(comments, erpnext.Comment{
+				ID:        "customer-local-lifecycle",
+				Content:   lifecycleComment,
+				CreatedAt: time.Now().UTC().Format("2006-01-02 15:04:05"),
+			})
+		}
+	}
 
 	if approve {
 		if err := a.erp.AddDeliveryNoteComment(
@@ -1424,6 +1441,9 @@ func customerDeliveryStatus(item erpnext.DeliveryNoteDraft, comments []erpnext.C
 	if item.DocStatus != 1 {
 		return "draft"
 	}
+	if latestDeliveryLifecycleState(comments) != "submitted" {
+		return "pending"
+	}
 	state := latestCustomerDecisionState(comments)
 	switch {
 	case state == "rejected":
@@ -1437,6 +1457,15 @@ func customerDeliveryStatus(item erpnext.DeliveryNoteDraft, comments []erpnext.C
 
 func customerDeliveryVisible(item erpnext.DeliveryNoteDraft, comments []erpnext.Comment) bool {
 	return item.DocStatus == 1
+}
+
+func latestDeliveryLifecycleState(comments []erpnext.Comment) string {
+	for index := len(comments) - 1; index >= 0; index-- {
+		if state := strings.TrimSpace(erpnext.ExtractDeliveryLifecycleState(comments[index].Content)); state != "" {
+			return state
+		}
+	}
+	return ""
 }
 
 func latestCustomerDecisionState(comments []erpnext.Comment) string {

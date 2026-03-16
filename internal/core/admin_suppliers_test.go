@@ -307,6 +307,11 @@ func TestNotificationDetailSupportsCustomerDeliveryResultEvents(t *testing.T) {
 		listDeliveryNoteComments: func(ctx context.Context, baseURL, apiKey, apiSecret, name string, limit int) ([]erpnext.Comment, error) {
 			return []erpnext.Comment{
 				{
+					ID:        "LIFECYCLE-1",
+					Content:   erpnext.BuildDeliveryLifecycleComment("submitted", "werka"),
+					CreatedAt: "2026-03-15 09:59:00",
+				},
+				{
 					ID:        "COMMENT-1",
 					Content:   erpnext.UpsertCustomerDecisionInRemarks("", "confirmed", ""),
 					CreatedAt: "2026-03-15 10:00:00",

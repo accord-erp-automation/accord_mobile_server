@@ -351,7 +351,9 @@ func (c *Client) ListCustomerDeliveryNotesPage(ctx context.Context, baseURL, api
 	})
 
 	params := url.Values{}
-	params.Set("fields", `["name","customer","customer_name","posting_date","modified","status","docstatus","remarks","accord_flow_state","accord_customer_state","accord_customer_reason","accord_delivery_actor","items"]`)
+	// Keep list queries on scalar fields only. Frappe get_list rejects
+	// rich/table fields such as remarks/items with HTTP 417.
+	params.Set("fields", `["name","customer","customer_name","posting_date","modified","status","docstatus","accord_flow_state","accord_customer_state","accord_delivery_actor"]`)
 	params.Set("filters", string(filtersJSON))
 	params.Set("limit_page_length", fmt.Sprintf("%d", limit))
 	if offset > 0 {

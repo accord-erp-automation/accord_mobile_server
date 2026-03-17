@@ -1168,6 +1168,101 @@ func TestServerWerkaSummarySeparatesReturnedFromConfirmed(t *testing.T) {
 	}
 }
 
+func TestServerWerkaSummaryIncludesCustomerDeliveryNotes(t *testing.T) {
+	server := NewServer(NewERPAuthenticator(
+		&fakeERPClient{
+			telegramReceipts: []erpnext.PurchaseReceiptDraft{},
+			customers: []erpnext.Customer{
+				{ID: "CUST-001", Name: "Comfi"},
+			},
+			customerDeliveryNotes: []erpnext.DeliveryNoteDraft{
+				{
+					Name:                "MAT-DN-1001",
+					Customer:            "CUST-001",
+					CustomerName:        "Comfi",
+					ItemCode:            "ITEM-001",
+					ItemName:            "Chers",
+					Qty:                 3,
+					UOM:                 "Nos",
+					PostingDate:         "2026-03-17",
+					Modified:            "2026-03-17 10:00:00",
+					DocStatus:           1,
+					Status:              "To Bill",
+					AccordFlowState:     "1",
+					AccordCustomerState: "0",
+				},
+				{
+					Name:                 "MAT-DN-1002",
+					Customer:             "CUST-001",
+					CustomerName:         "Comfi",
+					ItemCode:             "ITEM-002",
+					ItemName:             "Test",
+					Qty:                  5,
+					UOM:                  "Kg",
+					PostingDate:          "2026-03-17",
+					Modified:             "2026-03-17 10:05:00",
+					DocStatus:            1,
+					Status:               "To Bill",
+					AccordFlowState:      "1",
+					AccordCustomerState:  "1",
+					AccordDeliveryActor:  "1",
+				},
+				{
+					Name:                 "MAT-DN-1003",
+					Customer:             "CUST-001",
+					CustomerName:         "Comfi",
+					ItemCode:             "ITEM-003",
+					ItemName:             "Reject",
+					Qty:                  2,
+					UOM:                  "Nos",
+					PostingDate:          "2026-03-17",
+					Modified:             "2026-03-17 10:10:00",
+					DocStatus:            1,
+					Status:               "To Bill",
+					AccordFlowState:      "1",
+					AccordCustomerState:  "2",
+					AccordCustomerReason: "xato",
+				},
+			},
+		},
+		"http://localhost:8000",
+		"key",
+		"secret",
+		"Stores - CH",
+		"10",
+		"20",
+		"20WERKA0001",
+		"+998901111111",
+		"Werka",
+		nil,
+		nil,
+	))
+	token, err := server.sessions.Create(Principal{
+		Role:        RoleWerka,
+		DisplayName: "Werka",
+		Ref:         "werka",
+	})
+	if err != nil {
+		t.Fatalf("failed to create werka session: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/mobile/werka/summary", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var summary WerkaHomeSummary
+	if err := json.NewDecoder(resp.Body).Decode(&summary); err != nil {
+		t.Fatalf("decode summary failed: %v", err)
+	}
+	if summary.PendingCount != 1 || summary.ConfirmedCount != 1 || summary.ReturnedCount != 1 {
+		t.Fatalf("unexpected summary: %+v", summary)
+	}
+}
+
 func TestServerWerkaStatusDetailsFiltersBySupplierAndKind(t *testing.T) {
 	fakeERP := &fakeERPClient{
 		telegramReceipts: []erpnext.PurchaseReceiptDraft{

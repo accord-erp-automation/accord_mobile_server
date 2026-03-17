@@ -527,6 +527,21 @@ func (a *ERPAuthenticator) WerkaPending(ctx context.Context, limit int) ([]Dispa
 		}
 		result = append(result, record)
 	}
+	customerRecords, err := a.collectWerkaCustomerDeliveryRecords(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range customerRecords {
+		if record.Status == "pending" {
+			result = append(result, record)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedLabel > result[j].CreatedLabel
+	})
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
 	return result, nil
 }
 
@@ -554,6 +569,20 @@ func (a *ERPAuthenticator) WerkaSummary(ctx context.Context) (WerkaHomeSummary, 
 			summary.ReturnedCount++
 		}
 	}
+	customerRecords, err := a.collectWerkaCustomerDeliveryRecords(ctx)
+	if err != nil {
+		return WerkaHomeSummary{}, err
+	}
+	for _, record := range customerRecords {
+		switch record.Status {
+		case "pending":
+			summary.PendingCount++
+		case "accepted":
+			summary.ConfirmedCount++
+		case "rejected", "cancelled", "partial":
+			summary.ReturnedCount++
+		}
+	}
 	return summary, nil
 }
 
@@ -576,6 +605,35 @@ func (a *ERPAuthenticator) WerkaStatusBreakdown(ctx context.Context, kind string
 			continue
 		}
 
+		key := strings.TrimSpace(record.SupplierRef)
+		if key == "" {
+			key = strings.TrimSpace(record.SupplierName)
+		}
+		entry := grouped[key]
+		if entry == nil {
+			entry = &WerkaStatusBreakdownEntry{
+				SupplierRef:  record.SupplierRef,
+				SupplierName: record.SupplierName,
+				UOM:          record.UOM,
+			}
+			grouped[key] = entry
+		}
+		entry.ReceiptCount++
+		entry.TotalSentQty += record.SentQty
+		entry.TotalAcceptedQty += record.AcceptedQty
+		entry.TotalReturnedQty += maxFloat(record.SentQty-record.AcceptedQty, 0)
+		if entry.UOM == "" {
+			entry.UOM = record.UOM
+		}
+	}
+	customerRecords, err := a.collectWerkaCustomerDeliveryRecords(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range customerRecords {
+		if !recordMatchesWerkaBreakdown(record, kind) {
+			continue
+		}
 		key := strings.TrimSpace(record.SupplierRef)
 		if key == "" {
 			key = strings.TrimSpace(record.SupplierName)
@@ -635,6 +693,22 @@ func (a *ERPAuthenticator) WerkaStatusDetails(ctx context.Context, kind, supplie
 		}
 		result = append(result, record)
 	}
+	customerRecords, err := a.collectWerkaCustomerDeliveryRecords(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range customerRecords {
+		if needle != "" && !strings.EqualFold(strings.TrimSpace(record.SupplierRef), needle) {
+			continue
+		}
+		if !recordMatchesWerkaBreakdown(record, kind) {
+			continue
+		}
+		result = append(result, record)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedLabel > result[j].CreatedLabel
+	})
 	return result, nil
 }
 
@@ -713,6 +787,28 @@ func (a *ERPAuthenticator) customerResultEvents(ctx context.Context) ([]Dispatch
 				continue
 			}
 			result = append(result, record)
+		}
+	}
+	return result, nil
+}
+
+func (a *ERPAuthenticator) collectWerkaCustomerDeliveryRecords(ctx context.Context) ([]DispatchRecord, error) {
+	customers, err := a.erp.SearchCustomers(ctx, a.baseURL, a.apiKey, a.apiSecret, "", 500)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]DispatchRecord, 0, len(customers))
+	for _, customer := range customers {
+		deliveryNotes, err := a.collectCustomerDeliveryNotes(ctx, customer.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range deliveryNotes {
+			if !customerDeliveryVisible(item) {
+				continue
+			}
+			result = append(result, mapDeliveryNoteToDispatchRecord(item))
 		}
 	}
 	return result, nil

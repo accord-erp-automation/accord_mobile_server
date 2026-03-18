@@ -1903,8 +1903,14 @@ func mapPurchaseReceiptToDispatchRecord(item erpnext.PurchaseReceiptDraft, fallb
 		}
 	}
 	eventType := ""
-	if item.DocStatus == 0 && strings.TrimSpace(erpnext.ExtractWerkaUnannouncedState(item.Remarks)) == "pending" {
+	unannouncedState := strings.TrimSpace(erpnext.ExtractWerkaUnannouncedState(item.Remarks))
+	if item.DocStatus == 0 && unannouncedState == "pending" {
 		eventType = "werka_unannounced_pending"
+	} else if status == "accepted" && unannouncedState == "approved" {
+		eventType = "werka_unannounced_approved"
+		if note == "" {
+			note = "Aytilmagan mol tasdiqlandi."
+		}
 	}
 	return DispatchRecord{
 		ID:           item.Name,

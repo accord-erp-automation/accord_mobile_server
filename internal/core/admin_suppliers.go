@@ -610,21 +610,18 @@ func (a *ERPAuthenticator) supplierAllowedItems(ctx context.Context, principal P
 		}
 		return a.mapSupplierItems(ctx, items)
 	}
-	if len(state.AssignedItemCodes) == 0 {
-		return []SupplierItem{}, nil
-	}
 
-	items, err := a.erp.GetItemsByCodes(ctx, a.baseURL, a.apiKey, a.apiSecret, state.AssignedItemCodes)
+	items, err := a.adminAssignedItems(ctx, principal.Ref, state, limit)
 	if err != nil {
 		return nil, err
 	}
 	if trimmed := strings.TrimSpace(query); trimmed != "" {
-		items = filterItemsByQuery(items, trimmed)
+		items = filterSupplierItemsByQuery(items, trimmed)
 	}
 	if limit > 0 && len(items) > limit {
 		items = items[:limit]
 	}
-	return a.mapSupplierItems(ctx, items)
+	return items, nil
 }
 
 func (a *ERPAuthenticator) validateSupplierItemAllowed(ctx context.Context, supplierRef, itemCode string) error {
@@ -638,8 +635,15 @@ func (a *ERPAuthenticator) validateSupplierItemAllowed(ctx context.Context, supp
 	if !state.AssignmentsConfigured {
 		return nil
 	}
-	if stateIncludesItem(state, itemCode) {
-		return nil
+
+	items, err := a.adminAssignedItems(ctx, supplierRef, state, 200)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if strings.EqualFold(strings.TrimSpace(item.Code), strings.TrimSpace(itemCode)) {
+			return nil
+		}
 	}
 	return fmt.Errorf("item supplierga biriktirilmagan")
 }
@@ -899,6 +903,22 @@ func filterItemsByQuery(items []erpnext.Item, query string) []erpnext.Item {
 	}
 
 	filtered := make([]erpnext.Item, 0, len(items))
+	for _, item := range items {
+		if strings.Contains(strings.ToLower(item.Code), lowerQuery) ||
+			strings.Contains(strings.ToLower(item.Name), lowerQuery) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func filterSupplierItemsByQuery(items []SupplierItem, query string) []SupplierItem {
+	lowerQuery := strings.ToLower(strings.TrimSpace(query))
+	if lowerQuery == "" {
+		return items
+	}
+
+	filtered := make([]SupplierItem, 0, len(items))
 	for _, item := range items {
 		if strings.Contains(strings.ToLower(item.Code), lowerQuery) ||
 			strings.Contains(strings.ToLower(item.Name), lowerQuery) {

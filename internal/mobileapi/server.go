@@ -349,7 +349,9 @@ func (s *Server) handleNotificationComment(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	if principal.Role != RoleSupplier && principal.Role != RoleWerka {
+	if principal.Role != RoleSupplier &&
+		principal.Role != RoleWerka &&
+		principal.Role != RoleCustomer {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 		return
 	}

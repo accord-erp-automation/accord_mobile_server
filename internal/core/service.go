@@ -1063,6 +1063,9 @@ func (a *ERPAuthenticator) NotificationDetail(ctx context.Context, principal Pri
 	if err != nil {
 		return NotificationDetail{}, err
 	}
+	if principal.Role == RoleCustomer {
+		return NotificationDetail{}, ErrUnauthorized
+	}
 	if principal.Role == RoleSupplier && strings.TrimSpace(draft.Supplier) != strings.TrimSpace(principal.Ref) {
 		return NotificationDetail{}, ErrUnauthorized
 	}
@@ -2014,6 +2017,8 @@ func formatNotificationComment(principal Principal, message string) string {
 		label = "Supplier"
 	case RoleWerka:
 		label = "Werka"
+	case RoleCustomer:
+		label = "Customer"
 	case RoleAdmin:
 		label = "Admin"
 	}
@@ -2033,10 +2038,14 @@ func parseNotificationComment(content string) (string, string) {
 	if len(lines) >= 2 {
 		head := strings.TrimSpace(lines[0])
 		body := strings.TrimSpace(strings.Join(lines[1:], "\n"))
-		if body != "" && (strings.HasPrefix(head, "Supplier") || strings.HasPrefix(head, "Werka") || strings.HasPrefix(head, "Admin")) {
-			return head, body
+			if body != "" &&
+				(strings.HasPrefix(head, "Supplier") ||
+					strings.HasPrefix(head, "Werka") ||
+					strings.HasPrefix(head, "Customer") ||
+					strings.HasPrefix(head, "Admin")) {
+				return head, body
+			}
 		}
-	}
 	return "Tizim", trimmed
 }
 

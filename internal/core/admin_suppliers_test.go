@@ -481,6 +481,89 @@ func TestCustomerRespondDeliveryRejectRequiresReason(t *testing.T) {
 	}
 }
 
+func TestCustomerCanAddCommentToCustomerDeliveryResultEvent(t *testing.T) {
+	var addedDeliveryNoteName string
+	stub := &adminSuppliersERPStub{
+		getDeliveryNote: func(ctx context.Context, baseURL, apiKey, apiSecret, name string) (erpnext.DeliveryNoteDraft, error) {
+			return erpnext.DeliveryNoteDraft{
+				Name:                "MAT-DN-0001",
+				Customer:            "CUST-001",
+				CustomerName:        "Comfi",
+				ItemCode:            "ITEM-001",
+				ItemName:            "Chers",
+				Qty:                 3,
+				UOM:                 "Nos",
+				PostingDate:         "2026-03-15",
+				DocStatus:           1,
+				AccordFlowState:     "1",
+				AccordCustomerState: "2",
+				AccordCustomerReason: "Noto'g'ri mahsulot",
+			}, nil
+		},
+		listDeliveryNoteComments: func(ctx context.Context, baseURL, apiKey, apiSecret, name string, limit int) ([]erpnext.Comment, error) {
+			return []erpnext.Comment{}, nil
+		},
+		addDeliveryNoteComment: func(ctx context.Context, baseURL, apiKey, apiSecret, name, content string) error {
+			addedDeliveryNoteName = name
+			return nil
+		},
+	}
+
+	auth := NewERPAuthenticator(
+		stub,
+		"http://erp.test",
+		"key",
+		"secret",
+		"Main - A",
+		"10",
+		"20",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+	)
+
+	_, err := auth.AddNotificationComment(
+		context.Background(),
+		Principal{Role: RoleCustomer, Ref: "CUST-001"},
+		customerDeliveryResultEventPrefix+"MAT-DN-0001",
+		"Men xato ko'ribman, qayta tekshiraman",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if addedDeliveryNoteName != "MAT-DN-0001" {
+		t.Fatalf("expected delivery note comment target MAT-DN-0001, got %q", addedDeliveryNoteName)
+	}
+}
+
+func TestCustomerCannotOpenPurchaseReceiptNotificationDetail(t *testing.T) {
+	auth := NewERPAuthenticator(
+		&adminSuppliersERPStub{},
+		"http://erp.test",
+		"key",
+		"secret",
+		"Main - A",
+		"10",
+		"20",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+	)
+
+	_, err := auth.NotificationDetail(
+		context.Background(),
+		Principal{Role: RoleCustomer, Ref: "CUST-001"},
+		"MAT-PRE-0001",
+	)
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("expected ErrUnauthorized, got %v", err)
+	}
+}
+
 func TestAdminAssignedSupplierItemsReturnsEmptyWhenPermissionDeniedWithoutCache(t *testing.T) {
 	stub := &adminSuppliersERPStub{
 		getSupplier: func(ctx context.Context, baseURL, apiKey, apiSecret, id string) (erpnext.Supplier, error) {

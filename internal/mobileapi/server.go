@@ -580,7 +580,7 @@ func (s *Server) handleCustomerHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items, err := s.auth.CustomerHistory(r.Context(), principal, 100)
+	items, err := s.auth.CustomerHistory(r.Context(), principal)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "customer history failed"})
 		return

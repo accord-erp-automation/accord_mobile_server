@@ -1393,8 +1393,8 @@ func (a *ERPAuthenticator) AdminActivity(ctx context.Context, limit int) ([]Disp
 	return a.WerkaHistory(ctx, limit)
 }
 
-func (a *ERPAuthenticator) CustomerHistory(ctx context.Context, principal Principal, limit int) ([]DispatchRecord, error) {
-	items, err := a.erp.ListCustomerDeliveryNotes(ctx, a.baseURL, a.apiKey, a.apiSecret, principal.Ref, limit)
+func (a *ERPAuthenticator) CustomerHistory(ctx context.Context, principal Principal) ([]DispatchRecord, error) {
+	items, err := a.collectCustomerDeliveryNotes(ctx, principal.Ref)
 	if err != nil {
 		return nil, err
 	}

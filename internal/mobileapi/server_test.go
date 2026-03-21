@@ -1445,6 +1445,68 @@ func TestServerNotificationDetailAndCommentFlow(t *testing.T) {
 	}
 }
 
+func TestServerCustomerHistoryReturnsCanonicalFullList(t *testing.T) {
+	notes := make([]erpnext.DeliveryNoteDraft, 0, 150)
+	for index := 0; index < 150; index++ {
+		notes = append(notes, erpnext.DeliveryNoteDraft{
+			Name:                 fmt.Sprintf("MAT-DN-%04d", index+1),
+			Customer:             "CUST-001",
+			CustomerName:         "Comfi",
+			ItemCode:             fmt.Sprintf("ITEM-%03d", index+1),
+			ItemName:             fmt.Sprintf("Item %03d", index+1),
+			Qty:                  1,
+			UOM:                  "Kg",
+			PostingDate:          "2026-03-20",
+			Modified:             fmt.Sprintf("2026-03-20 10:%02d:00", index%60),
+			DocStatus:            1,
+			AccordFlowState:      "1",
+			AccordCustomerState:  "0",
+			AccordCustomerReason: "",
+		})
+	}
+	fakeERP := &fakeERPClient{
+		customerDeliveryNotes: notes,
+	}
+	server := NewServer(NewERPAuthenticator(
+		fakeERP,
+		"http://localhost:8000",
+		"key",
+		"secret",
+		"Stores - CH",
+		"10",
+		"20",
+		"20WERKA0001",
+		"+998901111111",
+		"Werka",
+		nil,
+		nil,
+	))
+	token, err := server.sessions.Create(Principal{
+		Role:        RoleCustomer,
+		DisplayName: "Comfi",
+		Ref:         "CUST-001",
+	})
+	if err != nil {
+		t.Fatalf("failed to create customer session: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/mobile/customer/history", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("unexpected customer history status: %d", resp.Code)
+	}
+
+	var items []DispatchRecord
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		t.Fatalf("decode customer history: %v", err)
+	}
+	if len(items) != 150 {
+		t.Fatalf("expected 150 customer history items, got %d", len(items))
+	}
+}
+
 func TestServerSupplierAcknowledgmentCommentSucceedsWhenRemarksBackfillFails(t *testing.T) {
 	fakeERP := &fakeERPClient{
 		updateRemarksErr: assertErr("remarks update failed"),

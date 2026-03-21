@@ -1758,6 +1758,112 @@ func TestServerWerkaHistoryDeduplicatesReceipts(t *testing.T) {
 	}
 }
 
+func TestServerWerkaHistoryReturnsCanonicalFullList(t *testing.T) {
+	receipts := make([]erpnext.PurchaseReceiptDraft, 0, 80)
+	for index := 0; index < 80; index++ {
+		receipts = append(receipts, erpnext.PurchaseReceiptDraft{
+			Name:                 fmt.Sprintf("MAT-PRE-%04d", index+1),
+			Supplier:             "SUP-001",
+			SupplierName:         "Abdulloh",
+			SupplierDeliveryNote: fmt.Sprintf("TG:+998900000000|%d", index+1),
+			ItemCode:             fmt.Sprintf("ITEM-%03d", index+1),
+			ItemName:             fmt.Sprintf("Item %03d", index+1),
+			Qty:                  1,
+			UOM:                  "Kg",
+			PostingDate:          "2026-03-20",
+		})
+	}
+	server := NewServer(NewERPAuthenticator(
+		&fakeERPClient{telegramReceipts: receipts},
+		"http://localhost:8000",
+		"key",
+		"secret",
+		"Stores - CH",
+		"10",
+		"20",
+		"20WERKA0001",
+		"+998901111111",
+		"Werka",
+		nil,
+		nil,
+	))
+	token, err := server.sessions.Create(Principal{
+		Role:        RoleWerka,
+		DisplayName: "Werka",
+		Ref:         "werka",
+	})
+	if err != nil {
+		t.Fatalf("failed to create werka session: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/mobile/werka/history", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var items []DispatchRecord
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(items) != 80 {
+		t.Fatalf("expected 80 Werka history items, got %d", len(items))
+	}
+}
+
+func TestServerAdminActivityStillRespectsLimit(t *testing.T) {
+	receipts := make([]erpnext.PurchaseReceiptDraft, 0, 40)
+	for index := 0; index < 40; index++ {
+		receipts = append(receipts, erpnext.PurchaseReceiptDraft{
+			Name:                 fmt.Sprintf("MAT-PRE-%04d", index+1),
+			Supplier:             "SUP-001",
+			SupplierName:         "Abdulloh",
+			SupplierDeliveryNote: fmt.Sprintf("TG:+998900000000|%d", index+1),
+			ItemCode:             fmt.Sprintf("ITEM-%03d", index+1),
+			ItemName:             fmt.Sprintf("Item %03d", index+1),
+			Qty:                  1,
+			UOM:                  "Kg",
+			PostingDate:          "2026-03-20",
+		})
+	}
+	server := NewServer(NewERPAuthenticator(
+		&fakeERPClient{telegramReceipts: receipts},
+		"http://localhost:8000",
+		"key",
+		"secret",
+		"Stores - CH",
+		"10",
+		"20",
+		"20WERKA0001",
+		"+998901111111",
+		"Werka",
+		nil,
+		nil,
+	))
+	token, err := server.sessions.Create(Principal{Role: RoleAdmin, DisplayName: "Admin"})
+	if err != nil {
+		t.Fatalf("failed to create admin session: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/mobile/admin/activity", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d", resp.Code)
+	}
+
+	var items []DispatchRecord
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(items) != 30 {
+		t.Fatalf("expected admin activity to remain limited to 30, got %d", len(items))
+	}
+}
+
 func TestServerCustomerSummaryAndHistory(t *testing.T) {
 	server := NewServer(NewERPAuthenticator(
 		&fakeERPClient{

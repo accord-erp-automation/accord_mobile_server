@@ -1071,7 +1071,7 @@ func (s *Server) handleWerkaHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items, err := s.auth.WerkaHistory(r.Context(), 50)
+	items, err := s.auth.WerkaHistory(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "history fetch failed"})
 		return

@@ -724,12 +724,15 @@ func (a *ERPAuthenticator) WerkaStatusDetails(ctx context.Context, kind, supplie
 	return result, nil
 }
 
-func (a *ERPAuthenticator) WerkaHistory(ctx context.Context, limit int) ([]DispatchRecord, error) {
-	items, err := a.erp.ListTelegramPurchaseReceipts(ctx, a.baseURL, a.apiKey, a.apiSecret, limit)
+func (a *ERPAuthenticator) WerkaHistory(ctx context.Context) ([]DispatchRecord, error) {
+	return a.collectWerkaHistoryRecords(ctx)
+}
+
+func (a *ERPAuthenticator) collectWerkaHistoryRecords(ctx context.Context) ([]DispatchRecord, error) {
+	items, err := a.collectTelegramPurchaseReceipts(ctx)
 	if err != nil {
 		return nil, err
 	}
-	items = uniquePurchaseReceiptsByName(items)
 
 	commentsByReceipt, err := a.purchaseReceiptCommentsByName(ctx, items, 100)
 	if err != nil {
@@ -1390,7 +1393,14 @@ func (a *ERPAuthenticator) RespondWerkaUnannouncedDraft(ctx context.Context, pri
 }
 
 func (a *ERPAuthenticator) AdminActivity(ctx context.Context, limit int) ([]DispatchRecord, error) {
-	return a.WerkaHistory(ctx, limit)
+	items, err := a.collectWerkaHistoryRecords(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
 }
 
 func (a *ERPAuthenticator) CustomerHistory(ctx context.Context, principal Principal) ([]DispatchRecord, error) {

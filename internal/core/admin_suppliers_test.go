@@ -435,7 +435,7 @@ func TestAddNotificationCommentUsesDeliveryNotePathForCustomerDeliveryResultEven
 	}
 }
 
-func TestWerkaLoginAcceptsLocalNineDigitConfiguredPhone(t *testing.T) {
+func TestWerkaLoginDoesNotBlockOnPhoneFormat(t *testing.T) {
 	auth := NewERPAuthenticator(
 		&adminSuppliersERPStub{},
 		"http://erp.test",
@@ -459,12 +459,12 @@ func TestWerkaLoginAcceptsLocalNineDigitConfiguredPhone(t *testing.T) {
 		t.Fatalf("expected werka role, got %q", principal.Role)
 	}
 
-	principal, err = auth.Login(context.Background(), "+99888862440", "20ABCDEF1234")
+	principal, err = auth.Login(context.Background(), "+123456789", "20ABCDEF1234")
 	if err != nil {
-		t.Fatalf("Login() with loose format error = %v", err)
+		t.Fatalf("Login() with alternative format error = %v", err)
 	}
 	if principal.Role != RoleWerka {
-		t.Fatalf("expected werka role for loose format, got %q", principal.Role)
+		t.Fatalf("expected werka role for alternative format, got %q", principal.Role)
 	}
 }
 

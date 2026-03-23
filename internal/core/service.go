@@ -305,15 +305,8 @@ func (a *ERPAuthenticator) Login(ctx context.Context, phone, code string) (Princ
 
 	case RoleWerka:
 		if code == a.werkaCode && code != "" {
-			if a.werkaPhone != "" {
-				expectedWerkaPhone, err := normalizeConfigPhone(a.werkaPhone)
-				if err != nil {
-					return Principal{}, ErrInvalidCredentials
-				}
-				if !phonesLooselyMatch(expectedWerkaPhone, normalizedPhone) {
-					return Principal{}, ErrInvalidCredentials
-				}
-			}
+			// Werka account is code-driven. Phone input should not block
+			// customer issue / delivery note operations due to formatting drift.
 			return Principal{
 				Role:        RoleWerka,
 				DisplayName: a.werkaName,

@@ -10,6 +10,14 @@ Main flow:
 
 - Mobile app -> `mobile_server` -> ERPNext API
 
+Current transaction rules:
+
+- supplier dispatch creates `Purchase Receipt`
+- werka customer issue creates submitted `Delivery Note`
+- customer confirm updates the original `Delivery Note`
+- customer reject creates a real return `Delivery Note` against the original one
+- customer reject is not treated as a UI-only status change
+
 ## Run
 
 ```bash
@@ -47,3 +55,4 @@ go test ./...
 - `ERPNext` source code is not edited from this repo.
 - Firebase service account JSON is local-only and should not be committed.
 - This repo is the primary backend target for mobile work.
+- `Werka` auth is code-driven and should not be blocked by phone format drift.

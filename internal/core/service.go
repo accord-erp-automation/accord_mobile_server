@@ -1492,14 +1492,16 @@ func (a *ERPAuthenticator) CustomerRespondDelivery(ctx context.Context, principa
 		decisionState = strconv.Itoa(customerStateConfirmed)
 	}
 
-	if _, err := a.erp.CreateAndSubmitDeliveryNoteReturn(
-		ctx,
-		a.baseURL,
-		a.apiKey,
-		a.apiSecret,
-		draft.Name,
-	); err != nil {
-		return CustomerDeliveryDetail{}, err
+	if !approve {
+		if _, err := a.erp.CreateAndSubmitDeliveryNoteReturn(
+			ctx,
+			a.baseURL,
+			a.apiKey,
+			a.apiSecret,
+			draft.Name,
+		); err != nil {
+			return CustomerDeliveryDetail{}, err
+		}
 	}
 
 	if err := a.erp.UpdateDeliveryNoteState(

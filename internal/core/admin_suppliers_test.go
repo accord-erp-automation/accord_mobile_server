@@ -577,6 +577,61 @@ func TestCustomerRespondDeliveryRejectCreatesReturnDeliveryNote(t *testing.T) {
 	}
 }
 
+func TestCustomerRespondDeliveryApproveDoesNotCreateReturnDeliveryNote(t *testing.T) {
+	returnCalled := false
+
+	stub := &adminSuppliersERPStub{
+		getDeliveryNote: func(ctx context.Context, baseURL, apiKey, apiSecret, name string) (erpnext.DeliveryNoteDraft, error) {
+			return erpnext.DeliveryNoteDraft{
+				Name:                "MAT-DN-0001",
+				Customer:            "CUST-001",
+				CustomerName:        "Comfi",
+				ItemCode:            "ITEM-001",
+				ItemName:            "Chers",
+				Qty:                 3,
+				UOM:                 "Nos",
+				PostingDate:         "2026-03-15",
+				DocStatus:           1,
+				AccordFlowState:     "1",
+				AccordCustomerState: "1",
+			}, nil
+		},
+		createDeliveryNoteReturn: func(ctx context.Context, baseURL, apiKey, apiSecret, sourceName string) (erpnext.DeliveryNoteResult, error) {
+			returnCalled = true
+			return erpnext.DeliveryNoteResult{Name: "RET-DN-0001"}, nil
+		},
+	}
+
+	auth := NewERPAuthenticator(
+		stub,
+		"http://erp.test",
+		"key",
+		"secret",
+		"Main - A",
+		"10",
+		"20",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+	)
+
+	_, err := auth.CustomerRespondDelivery(
+		context.Background(),
+		Principal{Role: RoleCustomer, Ref: "CUST-001"},
+		"MAT-DN-0001",
+		true,
+		"",
+	)
+	if err != nil {
+		t.Fatalf("CustomerRespondDelivery() error = %v", err)
+	}
+	if returnCalled {
+		t.Fatal("return delivery note should not be created on approve")
+	}
+}
+
 func TestCustomerCanAddCommentToCustomerDeliveryResultEvent(t *testing.T) {
 	var addedDeliveryNoteName string
 	stub := &adminSuppliersERPStub{

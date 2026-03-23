@@ -157,11 +157,13 @@ func (c *Client) EnsureDeliveryNoteStateFields(ctx context.Context, baseURL, api
 		label     string
 		fieldtype string
 		insertAfter string
+		options   string
 	}{
-		{"accord_flow_state", "Accord Flow State", "Int", "remarks"},
-		{"accord_customer_state", "Accord Customer State", "Int", "accord_flow_state"},
-		{"accord_customer_reason", "Accord Customer Reason", "Small Text", "accord_customer_state"},
-		{"accord_delivery_actor", "Accord Delivery Actor", "Data", "accord_customer_reason"},
+		{"accord_flow_state", "Accord Flow State", "Int", "remarks", ""},
+		{"accord_customer_state", "Accord Customer State", "Int", "accord_flow_state", ""},
+		{"accord_customer_reason", "Accord Customer Reason", "Small Text", "accord_customer_state", ""},
+		{"accord_delivery_actor", "Accord Delivery Actor", "Data", "accord_customer_reason", ""},
+		{"accord_ui_status", "Accord UI Status", "Select", "accord_delivery_actor", "pending\nconfirm\nrejected"},
 	}
 	filtersJSON, _ := json.Marshal([][]interface{}{
 		{"dt", "=", "Delivery Note"},
@@ -170,6 +172,7 @@ func (c *Client) EnsureDeliveryNoteStateFields(ctx context.Context, baseURL, api
 			"accord_customer_state",
 			"accord_customer_reason",
 			"accord_delivery_actor",
+			"accord_ui_status",
 		}},
 	})
 	params := url.Values{}
@@ -204,6 +207,7 @@ func (c *Client) EnsureDeliveryNoteStateFields(ctx context.Context, baseURL, api
 			"read_only":       1,
 			"allow_on_submit": 1,
 			"no_copy":         1,
+			"options":         field.options,
 		}
 		if err := c.doJSONRequest(ctx, http.MethodPost, createEndpoint, apiKey, apiSecret, body, nil); err != nil {
 			if !strings.Contains(strings.ToLower(err.Error()), "duplicate") {
@@ -228,6 +232,7 @@ func (c *Client) UpdateDeliveryNoteState(ctx context.Context, baseURL, apiKey, a
 		"accord_customer_state":  strings.TrimSpace(update.CustomerState),
 		"accord_customer_reason": strings.TrimSpace(update.CustomerReason),
 		"accord_delivery_actor":  strings.TrimSpace(update.DeliveryActor),
+		"accord_ui_status":       strings.TrimSpace(update.UIStatus),
 	}, nil)
 }
 
@@ -419,6 +424,7 @@ func mapDeliveryNoteDraft(doc map[string]interface{}) (DeliveryNoteDraft, error)
 		AccordCustomerState:  getStringValue(doc["accord_customer_state"]),
 		AccordCustomerReason: getStringValue(doc["accord_customer_reason"]),
 		AccordDeliveryActor:  getStringValue(doc["accord_delivery_actor"]),
+		AccordUIStatus:       getStringValue(doc["accord_ui_status"]),
 	}
 	items, _ := doc["items"].([]interface{})
 	if len(items) == 0 {

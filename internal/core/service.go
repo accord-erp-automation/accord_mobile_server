@@ -1280,6 +1280,7 @@ func (a *ERPAuthenticator) CreateWerkaCustomerIssue(ctx context.Context, princip
 			CustomerState:  strconv.Itoa(customerStatePending),
 			CustomerReason: "",
 			DeliveryActor:  strconv.Itoa(deliveryActorWerka),
+			UIStatus:       customerDeliveryUIStatus(deliveryFlowStateSubmitted, customerStatePending),
 		},
 	); err != nil {
 		return WerkaCustomerIssueRecord{}, err
@@ -1508,6 +1509,7 @@ func (a *ERPAuthenticator) CustomerRespondDelivery(ctx context.Context, principa
 			CustomerState:  decisionState,
 			CustomerReason: strings.TrimSpace(reason),
 			DeliveryActor:  strconv.Itoa(deliveryActorWerka),
+			UIStatus:       customerDeliveryUIStatus(deliveryFlowStateSubmitted, parseAccordInt(decisionState, customerStatePending)),
 		},
 	); err != nil {
 		return CustomerDeliveryDetail{}, err
@@ -1516,6 +1518,10 @@ func (a *ERPAuthenticator) CustomerRespondDelivery(ctx context.Context, principa
 	draft.AccordCustomerState = decisionState
 	draft.AccordCustomerReason = strings.TrimSpace(reason)
 	draft.AccordDeliveryActor = strconv.Itoa(deliveryActorWerka)
+	draft.AccordUIStatus = customerDeliveryUIStatus(
+		deliveryFlowStateSubmitted,
+		parseAccordInt(decisionState, customerStatePending),
+	)
 	return CustomerDeliveryDetail{
 		Record:     mapDeliveryNoteToDispatchRecord(draft),
 		CanApprove: false,
@@ -1542,6 +1548,20 @@ func customerDeliveryStatus(item erpnext.DeliveryNoteDraft) string {
 
 func customerDeliveryVisible(item erpnext.DeliveryNoteDraft) bool {
 	return item.DocStatus == 1 && deliveryFlowStateValue(item) == deliveryFlowStateSubmitted
+}
+
+func customerDeliveryUIStatus(flowState, customerState int) string {
+	if flowState != deliveryFlowStateSubmitted {
+		return "pending"
+	}
+	switch customerState {
+	case customerStateConfirmed:
+		return "confirm"
+	case customerStateRejected:
+		return "rejected"
+	default:
+		return "pending"
+	}
 }
 
 func buildCustomerDeliveryResultEvent(item erpnext.DeliveryNoteDraft) (DispatchRecord, bool) {

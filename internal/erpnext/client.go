@@ -95,6 +95,7 @@ type DeliveryNoteStateUpdate struct {
 	CustomerState string
 	CustomerReason string
 	DeliveryActor string
+	UIStatus      string
 }
 
 type DeliveryNoteDraft struct {
@@ -114,6 +115,7 @@ type DeliveryNoteDraft struct {
 	AccordCustomerState string
 	AccordCustomerReason string
 	AccordDeliveryActor string
+	AccordUIStatus     string
 }
 
 type Client struct {

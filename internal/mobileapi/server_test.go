@@ -449,6 +449,7 @@ func (f *fakeERPClient) UpdateDeliveryNoteState(_ context.Context, _, _, _, name
 			item.AccordCustomerState = update.CustomerState
 			item.AccordCustomerReason = update.CustomerReason
 			item.AccordDeliveryActor = update.DeliveryActor
+			item.AccordUIStatus = update.UIStatus
 			f.customerDeliveryNotes[index] = item
 			return nil
 		}

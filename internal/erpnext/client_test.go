@@ -3,6 +3,7 @@ package erpnext
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -793,4 +794,20 @@ func TestSearchWarehousesUsesCyrillicFallbackVariant(t *testing.T) {
 	if queries[0] != "омбор" || queries[1] != "ombor" {
 		t.Fatalf("unexpected queries order: %v", queries)
 	}
+}
+
+func TestIsDuplicateBarcodeError(t *testing.T) {
+	t.Run("matches duplicate barcode message", func(t *testing.T) {
+		err := errors.New(`status 417: {"exception":"IntegrityError(1062, \"Duplicate entry '4780092350042' for key 'barcode'\")"}`)
+		if !isDuplicateBarcodeError(err) {
+			t.Fatal("expected duplicate barcode error to match")
+		}
+	})
+
+	t.Run("ignores unrelated error", func(t *testing.T) {
+		err := errors.New("status 500: boom")
+		if isDuplicateBarcodeError(err) {
+			t.Fatal("expected unrelated error not to match")
+		}
+	})
 }

@@ -24,6 +24,12 @@ type Item struct {
 	UOM  string
 }
 
+type ItemBarcode struct {
+	Name    string
+	Barcode string
+	UOM     string
+}
+
 type ItemCustomerAssignment struct {
 	Code         string
 	Name         string
@@ -239,6 +245,66 @@ func (c *Client) CreateItem(ctx context.Context, baseURL, apiKey, apiSecret stri
 		Name: itemName,
 		UOM:  strings.TrimSpace(response.Data.StockUOM),
 	}, nil
+}
+
+func (c *Client) UpdateItemStandardRate(ctx context.Context, baseURL, apiKey, apiSecret, itemCode string, rate float64) error {
+	normalized, err := normalizeBaseURL(baseURL)
+	if err != nil {
+		return err
+	}
+	endpoint := normalized + "/api/resource/Item/" + url.PathEscape(strings.TrimSpace(itemCode))
+	return c.doJSONRequest(ctx, http.MethodPut, endpoint, apiKey, apiSecret, map[string]interface{}{
+		"standard_rate": rate,
+	}, nil)
+}
+
+func (c *Client) UpsertItemBarcode(ctx context.Context, baseURL, apiKey, apiSecret, itemCode, barcode, uom string) error {
+	trimmedBarcode := strings.TrimSpace(barcode)
+	if trimmedBarcode == "" {
+		return nil
+	}
+	normalized, err := normalizeBaseURL(baseURL)
+	if err != nil {
+		return err
+	}
+	endpoint := normalized + "/api/resource/Item/" + url.PathEscape(strings.TrimSpace(itemCode))
+	var payload struct {
+		Data struct {
+			Barcodes []struct {
+				Name    string `json:"name"`
+				Barcode string `json:"barcode"`
+				UOM     string `json:"uom"`
+			} `json:"barcodes"`
+		} `json:"data"`
+	}
+	if err := c.doJSON(ctx, endpoint, apiKey, apiSecret, &payload); err != nil {
+		return err
+	}
+	for _, row := range payload.Data.Barcodes {
+		if strings.EqualFold(strings.TrimSpace(row.Barcode), trimmedBarcode) {
+			return nil
+		}
+	}
+	createEndpoint := normalized + "/api/resource/Item%20Barcode"
+	err = c.doJSONRequest(ctx, http.MethodPost, createEndpoint, apiKey, apiSecret, map[string]interface{}{
+		"parent":      strings.TrimSpace(itemCode),
+		"parenttype":  "Item",
+		"parentfield": "barcodes",
+		"barcode":     trimmedBarcode,
+		"uom":         strings.TrimSpace(uom),
+	}, nil)
+	if err != nil && isDuplicateBarcodeError(err) {
+		return nil
+	}
+	return err
+}
+
+func isDuplicateBarcodeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "duplicate entry") && strings.Contains(message, "for key 'barcode'")
 }
 
 func (c *Client) searchItemsByQuery(ctx context.Context, normalized, apiKey, apiSecret, query string, limit int) ([]Item, error) {

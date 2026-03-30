@@ -1,0 +1,8 @@
+[Unit]
+Description=ERPNext Mobile Server Watchdog
+After=network-online.target mobile-server-core.service mobile-server-tunnel.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /home/wikki/deploy/mobile_server_deploy/mobile-server-watchdog.sh

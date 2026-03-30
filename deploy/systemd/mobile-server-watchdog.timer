@@ -1,0 +1,11 @@
+[Unit]
+Description=Run ERPNext Mobile Server Watchdog periodically
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=mobile-server-watchdog.service
+
+[Install]
+WantedBy=timers.target

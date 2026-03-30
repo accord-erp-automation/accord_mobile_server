@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -882,7 +883,8 @@ func (s *Server) handleWerkaSuppliers(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 		return
 	}
-	items, err := s.auth.WerkaSuppliers(r.Context(), 200)
+	limit := optionalSearchLimit(r, 200, 200)
+	items, err := s.auth.WerkaSuppliers(r.Context(), limit)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "werka suppliers failed"})
 		return
@@ -900,7 +902,8 @@ func (s *Server) handleWerkaCustomers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	items, err := s.auth.WerkaCustomers(r.Context(), query, 200)
+	limit := optionalSearchLimit(r, 200, 200)
+	items, err := s.auth.WerkaCustomers(r.Context(), query, limit)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "werka customers failed"})
 		return
@@ -938,7 +941,8 @@ func (s *Server) handleWerkaCustomerItems(w http.ResponseWriter, r *http.Request
 	}
 	customerRef := strings.TrimSpace(r.URL.Query().Get("customer_ref"))
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	items, err := s.auth.WerkaCustomerItems(r.Context(), customerRef, query, 100)
+	limit := optionalSearchLimit(r, 100, 200)
+	items, err := s.auth.WerkaCustomerItems(r.Context(), customerRef, query, limit)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "werka customer items failed"})
 		return
@@ -956,12 +960,28 @@ func (s *Server) handleWerkaCustomerItemOptions(w http.ResponseWriter, r *http.R
 		return
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	items, err := s.auth.WerkaCustomerItemOptions(r.Context(), query, 200)
+	limit := optionalSearchLimit(r, 200, 200)
+	items, err := s.auth.WerkaCustomerItemOptions(r.Context(), query, limit)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "werka customer item options failed"})
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+func optionalSearchLimit(r *http.Request, defaultLimit, maxLimit int) int {
+	raw := strings.TrimSpace(r.URL.Query().Get("limit"))
+	if raw == "" {
+		return defaultLimit
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return defaultLimit
+	}
+	if maxLimit > 0 && value > maxLimit {
+		return maxLimit
+	}
+	return value
 }
 
 func (s *Server) handleWerkaCustomerIssueCreate(w http.ResponseWriter, r *http.Request) {

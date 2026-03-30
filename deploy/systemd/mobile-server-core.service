@@ -2,14 +2,16 @@
 Description=ERPNext Mobile Server Core
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=wikki
 WorkingDirectory=/home/wikki/deploy/mobile_server_deploy
+ExecStartPre=/bin/bash -lc 'pkill -f /home/wikki/deploy/mobile_server_deploy/core || true; sleep 1; pkill -9 -f /home/wikki/deploy/mobile_server_deploy/core || true; rm -f /home/wikki/deploy/mobile_server_deploy/.core.pid'
 ExecStart=/bin/bash -lc 'set -a; . /home/wikki/deploy/mobile_server_deploy/.env; set +a; export MOBILE_API_ADDR=:8081 ERP_DIRECT_READ_ENABLED=1 ERP_DIRECT_SITE_CONFIG_PATH=/home/wikki/erpnext/sites/erpnext.local/site_config.json ERP_DIRECT_DB_HOST=127.0.0.1 ERP_DIRECT_DB_PORT=3306; exec /home/wikki/deploy/mobile_server_deploy/core'
 Restart=always
-RestartSec=2
+RestartSec=3
 StandardOutput=journal
 StandardError=journal
 

@@ -123,6 +123,40 @@ func ParsePort(raw string, fallback int) int {
 	return fallback
 }
 
+func (r *Reader) SearchWerkaSuppliers(ctx context.Context, query string, limit int) ([]core.SupplierDirectoryEntry, error) {
+	limit = clampLimit(limit, 50, 500)
+	like := likePattern(query)
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT DISTINCT
+			s.name,
+			COALESCE(NULLIF(s.supplier_name, ''), s.name) AS supplier_name,
+			COALESCE(s.mobile_no, '')
+		FROM `+"`tabItem Supplier`"+` isup
+		INNER JOIN tabSupplier s ON s.name = isup.supplier
+		INNER JOIN tabItem i ON i.name = isup.parent
+		WHERE s.disabled = 0
+		  AND i.disabled = 0
+		  AND (? = '' OR s.name LIKE ? ESCAPE '\\' OR s.supplier_name LIKE ? ESCAPE '\\' OR COALESCE(s.mobile_no, '') LIKE ? ESCAPE '\\')
+		ORDER BY s.modified DESC
+		LIMIT ?`,
+		strings.TrimSpace(query), like, like, like, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]core.SupplierDirectoryEntry, 0, limit)
+	for rows.Next() {
+		var item core.SupplierDirectoryEntry
+		if err := rows.Scan(&item.Ref, &item.Name, &item.Phone); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
 func (r *Reader) SearchWerkaCustomers(ctx context.Context, query string, limit int) ([]core.CustomerDirectoryEntry, error) {
 	limit = clampLimit(limit, 50, 500)
 	like := likePattern(query)
@@ -173,6 +207,41 @@ func (r *Reader) SearchWerkaCustomerItems(ctx context.Context, customerRef, quer
 		ORDER BY i.item_name ASC
 		LIMIT ?`,
 		strings.TrimSpace(customerRef),
+		strings.TrimSpace(query), like, like, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]core.SupplierItem, 0, limit)
+	for rows.Next() {
+		var item core.SupplierItem
+		if err := rows.Scan(&item.Code, &item.Name, &item.UOM); err != nil {
+			return nil, err
+		}
+		item.Warehouse = r.defaultWarehouse
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (r *Reader) SearchWerkaSupplierItems(ctx context.Context, supplierRef, query string, limit int) ([]core.SupplierItem, error) {
+	limit = clampLimit(limit, 50, 500)
+	like := likePattern(query)
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT DISTINCT
+			i.item_code,
+			COALESCE(NULLIF(i.item_name, ''), i.item_code) AS item_name,
+			COALESCE(NULLIF(i.stock_uom, ''), 'Nos') AS stock_uom
+		FROM `+"`tabItem Supplier`"+` isup
+		INNER JOIN tabItem i ON i.name = isup.parent
+		WHERE isup.supplier = ?
+		  AND i.disabled = 0
+		  AND (? = '' OR i.item_code LIKE ? ESCAPE '\\' OR i.item_name LIKE ? ESCAPE '\\')
+		ORDER BY i.item_name ASC
+		LIMIT ?`,
+		strings.TrimSpace(supplierRef),
 		strings.TrimSpace(query), like, like, limit,
 	)
 	if err != nil {

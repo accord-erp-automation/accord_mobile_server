@@ -109,7 +109,9 @@ type ERPClient interface {
 }
 
 type DirectoryReader interface {
+	SearchWerkaSuppliers(ctx context.Context, query string, limit int) ([]SupplierDirectoryEntry, error)
 	SearchWerkaCustomers(ctx context.Context, query string, limit int) ([]CustomerDirectoryEntry, error)
+	SearchWerkaSupplierItems(ctx context.Context, supplierRef, query string, limit int) ([]SupplierItem, error)
 	SearchWerkaCustomerItems(ctx context.Context, customerRef, query string, limit int) ([]SupplierItem, error)
 	SearchWerkaCustomerItemOptions(ctx context.Context, query string, limit int) ([]CustomerItemOption, error)
 }
@@ -1195,6 +1197,9 @@ func resolveNotificationTarget(receiptID string) (targetName, targetType, eventT
 }
 
 func (a *ERPAuthenticator) WerkaSuppliers(ctx context.Context, query string, limit int) ([]SupplierDirectoryEntry, error) {
+	if a.reader != nil {
+		return a.reader.SearchWerkaSuppliers(ctx, query, limit)
+	}
 	searchLimit := limit
 	if searchLimit <= 0 {
 		searchLimit = 100
@@ -1508,6 +1513,9 @@ func (a *ERPAuthenticator) CreateWerkaCustomerIssue(ctx context.Context, princip
 }
 
 func (a *ERPAuthenticator) WerkaSupplierItems(ctx context.Context, supplierRef, query string, limit int) ([]SupplierItem, error) {
+	if a.reader != nil {
+		return a.reader.SearchWerkaSupplierItems(ctx, supplierRef, query, limit)
+	}
 	principal := Principal{Role: RoleSupplier, Ref: strings.TrimSpace(supplierRef)}
 	return a.supplierAllowedItems(ctx, principal, query, limit)
 }

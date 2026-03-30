@@ -46,3 +46,29 @@ func TestConfigFromSiteConfig(t *testing.T) {
 		t.Fatalf("expected default warehouse to be preserved")
 	}
 }
+
+func TestClassifyWerkaReceiptSkipsUnannouncedPending(t *testing.T) {
+	status, include := classifyWerkaReceipt(purchaseReceiptSummaryRow{
+		DocStatus: 0,
+		Status:    "Draft",
+		TotalQty:  1,
+		Remarks:   "Accord Werka Aytilmagan: pending",
+	})
+	if status != "draft" {
+		t.Fatalf("expected draft status, got %q", status)
+	}
+	if include {
+		t.Fatalf("expected pending unannounced receipt to be skipped")
+	}
+}
+
+func TestDeliveryStatusUsesAccordFields(t *testing.T) {
+	status := deliveryStatus(deliveryNoteSummaryRow{
+		DocStatus:           1,
+		AccordFlowState:     deliveryFlowStateSubmittedDB,
+		AccordCustomerState: customerStateConfirmedDB,
+	})
+	if status != "accepted" {
+		t.Fatalf("expected accepted status, got %q", status)
+	}
+}

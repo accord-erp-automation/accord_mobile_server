@@ -13,6 +13,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 
 	"mobile_server/internal/core"
+	"mobile_server/internal/erpnext"
 )
 
 type Config struct {
@@ -37,6 +38,31 @@ type Reader struct {
 	db               *sql.DB
 	defaultWarehouse string
 }
+
+type purchaseReceiptSummaryRow struct {
+	Supplier             string
+	DocStatus            int
+	Status               string
+	TotalQty             float64
+	SupplierDeliveryNote string
+	Remarks              string
+}
+
+type deliveryNoteSummaryRow struct {
+	Customer            string
+	DocStatus           int
+	Qty                 float64
+	ReturnedQty         float64
+	AccordFlowState     int
+	AccordCustomerState int
+}
+
+const (
+	deliveryFlowStateSubmittedDB = 1
+	customerStateRejectedDB      = 2
+	customerStateConfirmedDB     = 3
+	customerStatePartialDB       = 4
+)
 
 func ConfigFromSiteConfig(siteConfigPath, defaultWarehouse string) (Config, error) {
 	raw, err := os.ReadFile(strings.TrimSpace(siteConfigPath))
@@ -311,6 +337,207 @@ func (r *Reader) SearchWerkaCustomerItemOptionsPage(ctx context.Context, query s
 		result = append(result, item)
 	}
 	return result, rows.Err()
+}
+
+func (r *Reader) WerkaSummary(ctx context.Context) (core.WerkaHomeSummary, error) {
+	receipts, err := r.telegramReceiptRows(ctx, "")
+	if err != nil {
+		return core.WerkaHomeSummary{}, err
+	}
+	summary := core.WerkaHomeSummary{}
+	for _, row := range receipts {
+		status, include := classifyWerkaReceipt(row)
+		if !include {
+			continue
+		}
+		switch status {
+		case "pending", "draft":
+			summary.PendingCount++
+		case "accepted":
+			summary.ConfirmedCount++
+		case "partial", "rejected", "cancelled":
+			summary.ReturnedCount++
+		}
+	}
+	deliveryNotes, err := r.deliveryNoteRows(ctx, "")
+	if err != nil {
+		return core.WerkaHomeSummary{}, err
+	}
+	for _, row := range deliveryNotes {
+		if !deliveryVisible(row) {
+			continue
+		}
+		switch deliveryStatus(row) {
+		case "pending":
+			summary.PendingCount++
+		case "accepted":
+			summary.ConfirmedCount++
+		case "partial", "rejected", "cancelled":
+			summary.ReturnedCount++
+		}
+	}
+	return summary, nil
+}
+
+func (r *Reader) SupplierSummary(ctx context.Context, supplierRef string) (core.SupplierHomeSummary, error) {
+	rows, err := r.telegramReceiptRows(ctx, supplierRef)
+	if err != nil {
+		return core.SupplierHomeSummary{}, err
+	}
+	summary := core.SupplierHomeSummary{}
+	for _, row := range rows {
+		status, _ := classifyWerkaReceipt(row)
+		switch status {
+		case "pending", "draft":
+			summary.PendingCount++
+		case "accepted":
+			summary.SubmittedCount++
+		case "partial", "rejected", "cancelled":
+			summary.ReturnedCount++
+		}
+	}
+	return summary, nil
+}
+
+func (r *Reader) CustomerSummary(ctx context.Context, customerRef string) (core.CustomerHomeSummary, error) {
+	rows, err := r.deliveryNoteRows(ctx, customerRef)
+	if err != nil {
+		return core.CustomerHomeSummary{}, err
+	}
+	summary := core.CustomerHomeSummary{}
+	for _, row := range rows {
+		if !deliveryVisible(row) {
+			continue
+		}
+		switch deliveryStatus(row) {
+		case "accepted":
+			summary.ConfirmedCount++
+		case "partial", "rejected":
+			summary.RejectedCount++
+		default:
+			summary.PendingCount++
+		}
+	}
+	return summary, nil
+}
+
+func (r *Reader) telegramReceiptRows(ctx context.Context, supplierRef string) ([]purchaseReceiptSummaryRow, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT supplier, docstatus, COALESCE(status, ''), COALESCE(total_qty, 0), COALESCE(supplier_delivery_note, ''), COALESCE(remarks, '')
+		FROM `+"`tabPurchase Receipt`"+`
+		WHERE supplier_delivery_note LIKE 'TG:%'
+		  AND (? = '' OR supplier = ?)
+	`, strings.TrimSpace(supplierRef), strings.TrimSpace(supplierRef))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]purchaseReceiptSummaryRow, 0, 64)
+	for rows.Next() {
+		var row purchaseReceiptSummaryRow
+		if err := rows.Scan(
+			&row.Supplier,
+			&row.DocStatus,
+			&row.Status,
+			&row.TotalQty,
+			&row.SupplierDeliveryNote,
+			&row.Remarks,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
+func (r *Reader) deliveryNoteRows(ctx context.Context, customerRef string) ([]deliveryNoteSummaryRow, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT customer, docstatus, COALESCE(total_qty, 0), COALESCE(per_returned, 0), COALESCE(accord_flow_state, 0), COALESCE(accord_customer_state, 0)
+		FROM `+"`tabDelivery Note`"+`
+		WHERE (? = '' OR customer = ?)
+	`, strings.TrimSpace(customerRef), strings.TrimSpace(customerRef))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]deliveryNoteSummaryRow, 0, 64)
+	for rows.Next() {
+		var row deliveryNoteSummaryRow
+		if err := rows.Scan(
+			&row.Customer,
+			&row.DocStatus,
+			&row.Qty,
+			&row.ReturnedQty,
+			&row.AccordFlowState,
+			&row.AccordCustomerState,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
+func classifyWerkaReceipt(row purchaseReceiptSummaryRow) (string, bool) {
+	sentQty := row.TotalQty
+	if markerQty, ok := erpnext.ParseTelegramReceiptMarkerQty(row.SupplierDeliveryNote); ok && markerQty > sentQty {
+		sentQty = markerQty
+	}
+
+	status := "pending"
+	switch {
+	case row.DocStatus == 2 || strings.EqualFold(strings.TrimSpace(row.Status), "Cancelled"):
+		status = "cancelled"
+	case row.DocStatus == 1:
+		status = purchaseReceiptStatusFromQuantities(sentQty, row.TotalQty)
+	case strings.EqualFold(strings.TrimSpace(row.Status), "Draft"):
+		status = "draft"
+	}
+
+	unannouncedState := strings.TrimSpace(erpnext.ExtractWerkaUnannouncedState(row.Remarks))
+	if row.DocStatus == 0 && unannouncedState == "pending" {
+		return status, false
+	}
+	if status == "accepted" && unannouncedState == "approved" {
+		return status, false
+	}
+	return status, true
+}
+
+func deliveryVisible(row deliveryNoteSummaryRow) bool {
+	return row.DocStatus == 1 && row.AccordFlowState == deliveryFlowStateSubmittedDB
+}
+
+func deliveryStatus(row deliveryNoteSummaryRow) string {
+	if row.DocStatus != 1 {
+		return "draft"
+	}
+	if row.AccordFlowState != deliveryFlowStateSubmittedDB {
+		return "pending"
+	}
+	switch row.AccordCustomerState {
+	case customerStateRejectedDB:
+		return "rejected"
+	case customerStateConfirmedDB:
+		return "accepted"
+	case customerStatePartialDB:
+		return "partial"
+	default:
+		return "pending"
+	}
+}
+
+func purchaseReceiptStatusFromQuantities(sentQty, acceptedQty float64) string {
+	switch {
+	case acceptedQty <= 0:
+		return "rejected"
+	case sentQty > 0 && acceptedQty < sentQty:
+		return "partial"
+	default:
+		return "accepted"
+	}
 }
 
 func clampLimit(value, fallback, max int) int {

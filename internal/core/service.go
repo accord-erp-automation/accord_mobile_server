@@ -114,6 +114,9 @@ type DirectoryReader interface {
 	SearchWerkaSupplierItemsPage(ctx context.Context, supplierRef, query string, limit, offset int) ([]SupplierItem, error)
 	SearchWerkaCustomerItemsPage(ctx context.Context, customerRef, query string, limit, offset int) ([]SupplierItem, error)
 	SearchWerkaCustomerItemOptionsPage(ctx context.Context, query string, limit, offset int) ([]CustomerItemOption, error)
+	WerkaSummary(ctx context.Context) (WerkaHomeSummary, error)
+	SupplierSummary(ctx context.Context, supplierRef string) (SupplierHomeSummary, error)
+	CustomerSummary(ctx context.Context, customerRef string) (CustomerHomeSummary, error)
 }
 
 type ERPAuthenticator struct {
@@ -449,6 +452,9 @@ func (a *ERPAuthenticator) SupplierHistory(ctx context.Context, principal Princi
 }
 
 func (a *ERPAuthenticator) SupplierSummary(ctx context.Context, principal Principal) (SupplierHomeSummary, error) {
+	if a.reader != nil {
+		return a.reader.SupplierSummary(ctx, principal.Ref)
+	}
 	items, err := a.collectSupplierPurchaseReceipts(ctx, principal.Ref)
 	if err != nil {
 		return SupplierHomeSummary{}, err
@@ -573,6 +579,9 @@ func (a *ERPAuthenticator) WerkaPending(ctx context.Context, limit int) ([]Dispa
 }
 
 func (a *ERPAuthenticator) WerkaSummary(ctx context.Context) (WerkaHomeSummary, error) {
+	if a.reader != nil {
+		return a.reader.WerkaSummary(ctx)
+	}
 	items, err := a.collectTelegramPurchaseReceipts(ctx)
 	if err != nil {
 		return WerkaHomeSummary{}, err
@@ -1663,6 +1672,9 @@ func (a *ERPAuthenticator) CustomerHistory(ctx context.Context, principal Princi
 }
 
 func (a *ERPAuthenticator) CustomerSummary(ctx context.Context, principal Principal) (CustomerHomeSummary, error) {
+	if a.reader != nil {
+		return a.reader.CustomerSummary(ctx, principal.Ref)
+	}
 	items, err := a.collectCustomerDeliveryNotes(ctx, principal.Ref)
 	if err != nil {
 		return CustomerHomeSummary{}, err

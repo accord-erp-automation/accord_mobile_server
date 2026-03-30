@@ -1581,6 +1581,19 @@ func (a *ERPAuthenticator) CreateWerkaCustomerIssue(ctx context.Context, princip
 	}, nil
 }
 
+func (a *ERPAuthenticator) WarmupWerkaCustomerIssue(ctx context.Context) error {
+	if _, err := a.resolveWarehouse(ctx); err != nil {
+		return err
+	}
+	if _, err := a.resolveCompany(ctx); err != nil {
+		return err
+	}
+	if err := a.erp.EnsureDeliveryNoteStateFields(ctx, a.baseURL, a.apiKey, a.apiSecret); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (a *ERPAuthenticator) WerkaSupplierItems(ctx context.Context, supplierRef, query string, limit int) ([]SupplierItem, error) {
 	return a.WerkaSupplierItemsPage(ctx, supplierRef, query, limit, 0)
 }

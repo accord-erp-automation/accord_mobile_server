@@ -108,8 +108,15 @@ type ERPClient interface {
 	DownloadFile(ctx context.Context, baseURL, apiKey, apiSecret, fileURL string) (string, []byte, error)
 }
 
+type DirectoryReader interface {
+	SearchWerkaCustomers(ctx context.Context, query string, limit int) ([]CustomerDirectoryEntry, error)
+	SearchWerkaCustomerItems(ctx context.Context, customerRef, query string, limit int) ([]SupplierItem, error)
+	SearchWerkaCustomerItemOptions(ctx context.Context, query string, limit int) ([]CustomerItemOption, error)
+}
+
 type ERPAuthenticator struct {
 	erp               ERPClient
+	reader            DirectoryReader
 	baseURL           string
 	apiKey            string
 	apiSecret         string
@@ -130,6 +137,10 @@ type ERPAuthenticator struct {
 	resolvedWarehouse string
 	companyMu         sync.RWMutex
 	resolvedCompany   string
+}
+
+func (a *ERPAuthenticator) SetDirectoryReader(reader DirectoryReader) {
+	a.reader = reader
 }
 
 func (a *ERPAuthenticator) BaseURL() string {
@@ -1200,6 +1211,9 @@ func (a *ERPAuthenticator) WerkaSuppliers(ctx context.Context, limit int) ([]Sup
 }
 
 func (a *ERPAuthenticator) WerkaCustomers(ctx context.Context, query string, limit int) ([]CustomerDirectoryEntry, error) {
+	if a.reader != nil {
+		return a.reader.SearchWerkaCustomers(ctx, query, limit)
+	}
 	searchLimit := limit
 	if searchLimit <= 0 {
 		searchLimit = 100
@@ -1243,6 +1257,9 @@ func (a *ERPAuthenticator) WerkaCustomers(ctx context.Context, query string, lim
 }
 
 func (a *ERPAuthenticator) WerkaCustomerItems(ctx context.Context, customerRef, query string, limit int) ([]SupplierItem, error) {
+	if a.reader != nil {
+		return a.reader.SearchWerkaCustomerItems(ctx, customerRef, query, limit)
+	}
 	items, err := a.erp.ListCustomerItems(ctx, a.baseURL, a.apiKey, a.apiSecret, strings.TrimSpace(customerRef), query, limit)
 	if err != nil {
 		return nil, err
@@ -1251,6 +1268,9 @@ func (a *ERPAuthenticator) WerkaCustomerItems(ctx context.Context, customerRef, 
 }
 
 func (a *ERPAuthenticator) WerkaCustomerItemOptions(ctx context.Context, query string, limit int) ([]CustomerItemOption, error) {
+	if a.reader != nil {
+		return a.reader.SearchWerkaCustomerItemOptions(ctx, query, limit)
+	}
 	customers, err := a.erp.SearchCustomers(ctx, a.baseURL, a.apiKey, a.apiSecret, "", 200)
 	if err != nil {
 		return nil, err

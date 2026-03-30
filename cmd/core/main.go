@@ -10,6 +10,7 @@ import (
 
 	"mobile_server/internal/config"
 	"mobile_server/internal/core"
+	"mobile_server/internal/erpdb"
 	"mobile_server/internal/erpnext"
 	"mobile_server/internal/mobileapi"
 )
@@ -69,6 +70,30 @@ func main() {
 		"19621978",
 		config.NewDotEnvPersister(".env"),
 	)
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ERP_DIRECT_READ_ENABLED")), "1") {
+		siteConfigPath := strings.TrimSpace(os.Getenv("ERP_DIRECT_SITE_CONFIG_PATH"))
+		if siteConfigPath != "" {
+			dbCfg, err := erpdb.ConfigFromSiteConfig(siteConfigPath, cfg.DefaultTargetWarehouse)
+			if err != nil {
+				log.Printf("direct DB read disabled: %v", err)
+			} else {
+				dbCfg.Host = firstNonEmpty(strings.TrimSpace(os.Getenv("ERP_DIRECT_DB_HOST")), dbCfg.Host)
+				dbCfg.Port = erpdb.ParsePort(strings.TrimSpace(os.Getenv("ERP_DIRECT_DB_PORT")), dbCfg.Port)
+				dbCfg.User = firstNonEmpty(strings.TrimSpace(os.Getenv("ERP_DIRECT_DB_USER")), dbCfg.User)
+				dbCfg.Password = firstNonEmpty(strings.TrimSpace(os.Getenv("ERP_DIRECT_DB_PASSWORD")), dbCfg.Password)
+				dbCfg.Name = firstNonEmpty(strings.TrimSpace(os.Getenv("ERP_DIRECT_DB_NAME")), dbCfg.Name)
+				reader, err := erpdb.Open(dbCfg)
+				if err != nil {
+					log.Printf("direct DB read disabled: %v", err)
+				} else {
+					service.SetDirectoryReader(reader)
+					log.Printf("direct DB read enabled for Werka pickers via %s:%d/%s", dbCfg.Host, dbCfg.Port, dbCfg.Name)
+				}
+			}
+		} else {
+			log.Printf("direct DB read disabled: ERP_DIRECT_SITE_CONFIG_PATH is empty")
+		}
+	}
 
 	server := mobileapi.NewServerWithSessionManager(
 		service,
@@ -78,4 +103,13 @@ func main() {
 	if err := http.ListenAndServe(addr, server.Handler()); err != nil {
 		log.Fatalf("core stopped: %v", err)
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }

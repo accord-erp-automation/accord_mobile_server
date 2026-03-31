@@ -73,6 +73,20 @@ type deliveryNoteSummaryRow struct {
 	AccordCustomerState int
 }
 
+type purchaseReceiptStatusRow struct {
+	DocStatus            int
+	Status               string
+	TotalQty             float64
+	SupplierDeliveryNote string
+	Remarks              string
+}
+
+type deliveryNoteStatusRow struct {
+	DocStatus           int
+	AccordFlowState     int
+	AccordCustomerState int
+}
+
 const (
 	deliveryFlowStateSubmittedDB = 1
 	customerStateRejectedDB      = 2
@@ -357,13 +371,13 @@ func (r *Reader) SearchWerkaCustomerItemOptionsPage(ctx context.Context, query s
 }
 
 func (r *Reader) WerkaSummary(ctx context.Context) (core.WerkaHomeSummary, error) {
-	receipts, err := r.telegramReceiptRows(ctx, "")
+	receipts, err := r.telegramReceiptStatusRows(ctx)
 	if err != nil {
 		return core.WerkaHomeSummary{}, err
 	}
 	summary := core.WerkaHomeSummary{}
 	for _, row := range receipts {
-		status, include := classifyWerkaReceipt(row)
+		status, include := classifyWerkaReceiptStatusRow(row)
 		if !include {
 			continue
 		}
@@ -376,15 +390,15 @@ func (r *Reader) WerkaSummary(ctx context.Context) (core.WerkaHomeSummary, error
 			summary.ReturnedCount++
 		}
 	}
-	deliveryNotes, err := r.deliveryNoteRows(ctx, "")
+	deliveryNotes, err := r.deliveryNoteStatusRows(ctx)
 	if err != nil {
 		return core.WerkaHomeSummary{}, err
 	}
 	for _, row := range deliveryNotes {
-		if !deliveryVisible(row) {
+		if !deliveryStatusVisible(row) {
 			continue
 		}
-		switch deliveryStatus(row) {
+		switch deliveryStatusFromState(row.DocStatus, row.AccordFlowState, row.AccordCustomerState) {
 		case "pending":
 			summary.PendingCount++
 		case "accepted":
@@ -394,6 +408,67 @@ func (r *Reader) WerkaSummary(ctx context.Context) (core.WerkaHomeSummary, error
 		}
 	}
 	return summary, nil
+}
+
+func (r *Reader) telegramReceiptStatusRows(ctx context.Context) ([]purchaseReceiptStatusRow, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT
+			pr.docstatus,
+			COALESCE(pr.status, ''),
+			COALESCE(pr.total_qty, 0),
+			COALESCE(pr.supplier_delivery_note, ''),
+			COALESCE(pr.remarks, '')
+		FROM `+"`tabPurchase Receipt`"+` pr
+		WHERE pr.supplier_delivery_note LIKE 'TG:%'
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]purchaseReceiptStatusRow, 0, 64)
+	for rows.Next() {
+		var row purchaseReceiptStatusRow
+		if err := rows.Scan(
+			&row.DocStatus,
+			&row.Status,
+			&row.TotalQty,
+			&row.SupplierDeliveryNote,
+			&row.Remarks,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
+func (r *Reader) deliveryNoteStatusRows(ctx context.Context) ([]deliveryNoteStatusRow, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT
+			dn.docstatus,
+			COALESCE(dn.accord_flow_state, 0),
+			COALESCE(dn.accord_customer_state, 0)
+		FROM `+"`tabDelivery Note`"+` dn
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]deliveryNoteStatusRow, 0, 64)
+	for rows.Next() {
+		var row deliveryNoteStatusRow
+		if err := rows.Scan(
+			&row.DocStatus,
+			&row.AccordFlowState,
+			&row.AccordCustomerState,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
 }
 
 func (r *Reader) WerkaHome(ctx context.Context, pendingLimit int) (core.WerkaHomeData, error) {
@@ -902,18 +977,52 @@ func classifyWerkaReceipt(row purchaseReceiptSummaryRow) (string, bool) {
 	return status, true
 }
 
+func classifyWerkaReceiptStatusRow(row purchaseReceiptStatusRow) (string, bool) {
+	sentQty := row.TotalQty
+	if markerQty, ok := erpnext.ParseTelegramReceiptMarkerQty(row.SupplierDeliveryNote); ok && markerQty > sentQty {
+		sentQty = markerQty
+	}
+
+	status := "pending"
+	switch {
+	case row.DocStatus == 2 || strings.EqualFold(strings.TrimSpace(row.Status), "Cancelled"):
+		status = "cancelled"
+	case row.DocStatus == 1:
+		status = purchaseReceiptStatusFromQuantities(sentQty, row.TotalQty)
+	case strings.EqualFold(strings.TrimSpace(row.Status), "Draft"):
+		status = "draft"
+	}
+
+	unannouncedState := strings.TrimSpace(erpnext.ExtractWerkaUnannouncedState(row.Remarks))
+	if row.DocStatus == 0 && unannouncedState == "pending" {
+		return status, false
+	}
+	if status == "accepted" && unannouncedState == "approved" {
+		return status, false
+	}
+	return status, true
+}
+
 func deliveryVisible(row deliveryNoteSummaryRow) bool {
 	return row.DocStatus == 1 && row.AccordFlowState == deliveryFlowStateSubmittedDB
 }
 
+func deliveryStatusVisible(row deliveryNoteStatusRow) bool {
+	return row.DocStatus == 1 && row.AccordFlowState == deliveryFlowStateSubmittedDB
+}
+
 func deliveryStatus(row deliveryNoteSummaryRow) string {
-	if row.DocStatus != 1 {
+	return deliveryStatusFromState(row.DocStatus, row.AccordFlowState, row.AccordCustomerState)
+}
+
+func deliveryStatusFromState(docStatus, flowState, customerState int) string {
+	if docStatus != 1 {
 		return "draft"
 	}
-	if row.AccordFlowState != deliveryFlowStateSubmittedDB {
+	if flowState != deliveryFlowStateSubmittedDB {
 		return "pending"
 	}
-	switch row.AccordCustomerState {
+	switch customerState {
 	case customerStateRejectedDB:
 		return "rejected"
 	case customerStateConfirmedDB:

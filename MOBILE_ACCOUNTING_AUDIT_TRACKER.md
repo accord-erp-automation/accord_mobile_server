@@ -56,13 +56,22 @@ Commitlar:
 - `166780c` `Add mobile server watchdog timer`
 - `686deb1` `Fix mobile server systemd pre-start cleanup`
 
+### 5. Werka history root cause
+
+- `Delivery Note` reader mavjud bo'lmagan `dn.remarks` ustunini o'qiyotgani topildi
+- shu schema mismatch reader'ni yiqitib, `werka/history`ni sekin fallback yo'liga tushirayotgani yopildi
+- live natija: `werka/history` taxminan `0.42s` ga tushdi
+
+Commit:
+- `52c6133` `Fix werka delivery note reader schema mismatch`
+
 ## Hali qolgan audit
 
 ### Werka
 
 - [ ] `home summary` sonlari `breakdown/detail` bilan to'liq bir xilmi
-- [ ] `recent` ichidagi status va qty lar `detail` bilan mosmi
-- [ ] `notifications` ichidagi matnlar real qty bilan mosmi
+- [x] `recent` transport path root-cause fix qilindi
+- [x] `notifications` transport path root-cause fix qilindi
 - [ ] `pending/confirmed/returned` countlari app runtime store tufayli drift bermayaptimi
 
 ### Supplier

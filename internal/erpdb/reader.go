@@ -615,7 +615,8 @@ func (r *Reader) CustomerSummary(ctx context.Context, customerRef string) (core.
 }
 
 func (r *Reader) WerkaHistory(ctx context.Context) ([]core.DispatchRecord, error) {
-	receipts, err := r.telegramReceiptRows(ctx, "")
+	const recentLimit = 120
+	receipts, err := r.telegramReceiptRowsLimited(ctx, "", recentLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -628,13 +629,13 @@ func (r *Reader) WerkaHistory(ctx context.Context) ([]core.DispatchRecord, error
 		result = append(result, record)
 	}
 
-	acks, err := r.supplierAckEvents(ctx)
+	acks, err := r.supplierAckEventsLimited(ctx, recentLimit)
 	if err != nil {
 		return nil, err
 	}
 	result = append(result, acks...)
 
-	customerEvents, err := r.customerResultEvents(ctx)
+	customerEvents, err := r.customerResultEventsLimited(ctx, recentLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -643,11 +644,19 @@ func (r *Reader) WerkaHistory(ctx context.Context) ([]core.DispatchRecord, error
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].CreatedLabel > result[j].CreatedLabel
 	})
+	if len(result) > recentLimit {
+		result = result[:recentLimit]
+	}
 	return result, nil
 }
 
 func (r *Reader) telegramReceiptRows(ctx context.Context, supplierRef string) ([]purchaseReceiptSummaryRow, error) {
-	rows, err := r.db.QueryContext(ctx, `
+	return r.telegramReceiptRowsLimited(ctx, supplierRef, 0)
+}
+
+func (r *Reader) telegramReceiptRowsLimited(ctx context.Context, supplierRef string, limit int) ([]purchaseReceiptSummaryRow, error) {
+	limit = clampLimit(limit, 0, 1000)
+	query := `
 		SELECT
 			pr.name,
 			pr.supplier,
@@ -663,11 +672,19 @@ func (r *Reader) telegramReceiptRows(ctx context.Context, supplierRef string) ([
 			COALESCE(pri.item_name, ''),
 			COALESCE(pri.uom, ''),
 			COALESCE(pri.amount, 0)
-		FROM `+"`tabPurchase Receipt`"+` pr
-		LEFT JOIN `+"`tabPurchase Receipt Item`"+` pri ON pri.parent = pr.name AND pri.idx = 1
+		FROM ` + "`tabPurchase Receipt`" + ` pr
+		LEFT JOIN ` + "`tabPurchase Receipt Item`" + ` pri ON pri.parent = pr.name AND pri.idx = 1
 		WHERE pr.supplier_delivery_note LIKE 'TG:%'
 		  AND (? = '' OR pr.supplier = ?)
-	`, strings.TrimSpace(supplierRef), strings.TrimSpace(supplierRef))
+		ORDER BY pr.posting_date DESC, pr.name DESC`
+	if limit > 0 {
+		query += "\n\t\tLIMIT ?"
+	}
+	args := []interface{}{strings.TrimSpace(supplierRef), strings.TrimSpace(supplierRef)}
+	if limit > 0 {
+		args = append(args, limit)
+	}
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -700,7 +717,12 @@ func (r *Reader) telegramReceiptRows(ctx context.Context, supplierRef string) ([
 }
 
 func (r *Reader) deliveryNoteRows(ctx context.Context, customerRef string) ([]deliveryNoteSummaryRow, error) {
-	rows, err := r.db.QueryContext(ctx, `
+	return r.deliveryNoteRowsLimited(ctx, customerRef, 0)
+}
+
+func (r *Reader) deliveryNoteRowsLimited(ctx context.Context, customerRef string, limit int) ([]deliveryNoteSummaryRow, error) {
+	limit = clampLimit(limit, 0, 1000)
+	query := `
 		SELECT
 			dn.name,
 			dn.customer,
@@ -715,10 +737,18 @@ func (r *Reader) deliveryNoteRows(ctx context.Context, customerRef string) ([]de
 			COALESCE(dni.uom, ''),
 			COALESCE(dn.accord_flow_state, 0),
 			COALESCE(dn.accord_customer_state, 0)
-		FROM `+"`tabDelivery Note`"+` dn
-		LEFT JOIN `+"`tabDelivery Note Item`"+` dni ON dni.parent = dn.name AND dni.idx = 1
+		FROM ` + "`tabDelivery Note`" + ` dn
+		LEFT JOIN ` + "`tabDelivery Note Item`" + ` dni ON dni.parent = dn.name AND dni.idx = 1
 		WHERE (? = '' OR dn.customer = ?)
-	`, strings.TrimSpace(customerRef), strings.TrimSpace(customerRef))
+		ORDER BY dn.modified DESC, dn.name DESC`
+	if limit > 0 {
+		query += "\n\t\tLIMIT ?"
+	}
+	args := []interface{}{strings.TrimSpace(customerRef), strings.TrimSpace(customerRef)}
+	if limit > 0 {
+		args = append(args, limit)
+	}
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -750,7 +780,12 @@ func (r *Reader) deliveryNoteRows(ctx context.Context, customerRef string) ([]de
 }
 
 func (r *Reader) supplierAckEvents(ctx context.Context) ([]core.DispatchRecord, error) {
-	rows, err := r.db.QueryContext(ctx, `
+	return r.supplierAckEventsLimited(ctx, 0)
+}
+
+func (r *Reader) supplierAckEventsLimited(ctx context.Context, limit int) ([]core.DispatchRecord, error) {
+	limit = clampLimit(limit, 0, 1000)
+	query := `
 		SELECT
 			c.name,
 			COALESCE(CAST(c.creation AS CHAR), ''),
@@ -760,13 +795,21 @@ func (r *Reader) supplierAckEvents(ctx context.Context) ([]core.DispatchRecord, 
 			COALESCE(pri.item_code, ''),
 			COALESCE(pri.item_name, ''),
 			COALESCE(pri.uom, '')
-		FROM `+"`tabComment`"+` c
-		INNER JOIN `+"`tabPurchase Receipt`"+` pr ON pr.name = c.reference_name
-		LEFT JOIN `+"`tabPurchase Receipt Item`"+` pri ON pri.parent = pr.name AND pri.idx = 1
+		FROM ` + "`tabComment`" + ` c
+		INNER JOIN ` + "`tabPurchase Receipt`" + ` pr ON pr.name = c.reference_name
+		LEFT JOIN ` + "`tabPurchase Receipt Item`" + ` pri ON pri.parent = pr.name AND pri.idx = 1
 		WHERE c.reference_doctype = 'Purchase Receipt'
 		  AND c.content LIKE 'Supplier%'
-		  AND c.content LIKE '%Tasdiqlayman%'`,
-	)
+		  AND c.content LIKE '%Tasdiqlayman%'
+		ORDER BY c.creation DESC`
+	if limit > 0 {
+		query += "\n\t\tLIMIT ?"
+	}
+	args := []interface{}{}
+	if limit > 0 {
+		args = append(args, limit)
+	}
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -815,7 +858,11 @@ func (r *Reader) supplierAckEvents(ctx context.Context) ([]core.DispatchRecord, 
 }
 
 func (r *Reader) customerResultEvents(ctx context.Context) ([]core.DispatchRecord, error) {
-	rows, err := r.deliveryNoteRows(ctx, "")
+	return r.customerResultEventsLimited(ctx, 0)
+}
+
+func (r *Reader) customerResultEventsLimited(ctx context.Context, limit int) ([]core.DispatchRecord, error) {
+	rows, err := r.deliveryNoteRowsLimited(ctx, "", limit)
 	if err != nil {
 		return nil, err
 	}

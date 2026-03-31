@@ -584,7 +584,9 @@ func (a *ERPAuthenticator) WerkaPending(ctx context.Context, limit int) ([]Dispa
 
 func (a *ERPAuthenticator) WerkaHome(ctx context.Context, pendingLimit int) (WerkaHomeData, error) {
 	if a.reader != nil {
-		home, err := a.reader.WerkaHome(ctx, pendingLimit)
+		readerCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		home, err := a.reader.WerkaHome(readerCtx, pendingLimit)
 		if err == nil {
 			return home, nil
 		}

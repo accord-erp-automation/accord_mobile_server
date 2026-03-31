@@ -782,7 +782,10 @@ func (a *ERPAuthenticator) WerkaStatusDetails(ctx context.Context, kind, supplie
 
 func (a *ERPAuthenticator) WerkaHistory(ctx context.Context) ([]DispatchRecord, error) {
 	if a.reader != nil {
-		return a.reader.WerkaHistory(ctx)
+		items, err := a.reader.WerkaHistory(ctx)
+		if err == nil {
+			return items, nil
+		}
 	}
 	return a.collectWerkaHistoryRecords(ctx)
 }

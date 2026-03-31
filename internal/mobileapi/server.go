@@ -1,6 +1,7 @@
 package mobileapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -159,7 +160,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	var werkaHome *WerkaHomeData
 	if principal.Role == RoleWerka {
-		if data, err := s.auth.WerkaHome(r.Context(), 20); err == nil {
+		warmCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if data, err := s.auth.WerkaHome(warmCtx, 20); err == nil {
 			werkaHome = &data
 		}
 	}

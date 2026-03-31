@@ -65,7 +65,7 @@ type deliveryNoteSummaryRow struct {
 	Modified            string
 	Qty                 float64
 	ReturnedQty         float64
-	Remarks             string
+	CustomerReason      string
 	ItemCode            string
 	ItemName            string
 	UOM                 string
@@ -806,7 +806,7 @@ func (r *Reader) deliveryNoteRowsLimited(ctx context.Context, customerRef string
 			COALESCE(CAST(dn.modified AS CHAR), ''),
 			COALESCE(dn.total_qty, 0),
 			COALESCE(dni.returned_qty, 0),
-			COALESCE(dn.remarks, ''),
+			COALESCE(dn.accord_customer_reason, ''),
 			COALESCE(dni.item_code, ''),
 			COALESCE(dni.item_name, ''),
 			COALESCE(dni.uom, ''),
@@ -840,7 +840,7 @@ func (r *Reader) deliveryNoteRowsLimited(ctx context.Context, customerRef string
 			&row.Modified,
 			&row.Qty,
 			&row.ReturnedQty,
-			&row.Remarks,
+			&row.CustomerReason,
 			&row.ItemCode,
 			&row.ItemName,
 			&row.UOM,
@@ -1145,28 +1145,20 @@ func deliveryNoteRowToDispatchRecord(row deliveryNoteSummaryRow) core.DispatchRe
 }
 
 func deliveryNoteDecisionQuantities(row deliveryNoteSummaryRow, status string) (acceptedQty, returnedQty float64) {
-	acceptedQty, returnedQty = erpnext.ExtractCustomerDecisionQuantities(row.Remarks)
-	if returnedQty <= 0 && row.ReturnedQty > 0 {
-		returnedQty = row.ReturnedQty
-	}
 	switch status {
 	case "accepted":
-		if acceptedQty <= 0 {
-			acceptedQty = row.Qty
-		}
-		return acceptedQty, 0
+		return row.Qty, 0
 	case "partial":
-		if acceptedQty <= 0 && returnedQty > 0 {
-			acceptedQty = floatMax(row.Qty-returnedQty, 0)
+		returnedQty = row.ReturnedQty
+		if returnedQty <= 0 {
+			returnedQty = floatMax(row.Qty, 0)
 		}
-		if returnedQty <= 0 && acceptedQty > 0 {
-			returnedQty = floatMax(row.Qty-acceptedQty, 0)
-		}
+		acceptedQty = floatMax(row.Qty-returnedQty, 0)
 		return acceptedQty, returnedQty
 	case "rejected", "cancelled":
 		return 0, row.Qty
 	default:
-		return acceptedQty, returnedQty
+		return 0, 0
 	}
 }
 

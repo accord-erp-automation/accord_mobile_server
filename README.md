@@ -186,12 +186,6 @@ make run
 
 The server starts on `:8081` by default and loads `.env` automatically.
 
-Werka AI image search now runs through `mobile_server`, not the mobile app
-binary. Set these env vars on the server when you want the scan button to work:
-
-- `GEMINI_API_KEY=<your gemini api key>`
-- `GEMINI_VISION_MODEL=gemini-flash-lite-latest` (optional)
-
 Health check:
 
 ```bash

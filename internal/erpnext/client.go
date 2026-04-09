@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 type AuthInfo struct {
@@ -440,7 +441,7 @@ func (c *Client) searchLink(ctx context.Context, baseURL, apiKey, apiSecret, doc
 	return result, nil
 }
 
-func buildSearchQueryVariants(query string) []string {
+func BuildSearchQueryVariants(query string) []string {
 	trimmed := strings.TrimSpace(query)
 	if trimmed == "" {
 		return []string{""}
@@ -452,6 +453,161 @@ func buildSearchQueryVariants(query string) []string {
 		variants = append(variants, latin)
 	}
 	return variants
+}
+
+func buildSearchQueryVariants(query string) []string {
+	return BuildSearchQueryVariants(query)
+}
+
+func NormalizeForSearch(input string) string {
+	if strings.TrimSpace(input) == "" {
+		return ""
+	}
+
+	lower := strings.ToLower(strings.TrimSpace(input))
+	transliterated := transliterateCyrillicToLatin(lower)
+	transliterated = strings.NewReplacer(
+		"'", "",
+		"`", "",
+		"ʻ", "",
+		"ʼ", "",
+		"’", "",
+		"x", "h",
+	).Replace(transliterated)
+
+	var buffer strings.Builder
+	buffer.Grow(len(transliterated))
+	lastWasSpace := false
+	for _, r := range transliterated {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r):
+			buffer.WriteRune(r)
+			lastWasSpace = false
+		case !lastWasSpace:
+			buffer.WriteByte(' ')
+			lastWasSpace = true
+		}
+	}
+
+	return strings.TrimSpace(buffer.String())
+}
+
+func SearchQueryScore(query string, values ...string) int {
+	needle := NormalizeForSearch(query)
+	if needle == "" {
+		return 1
+	}
+
+	needleCompact := strings.ReplaceAll(needle, " ", "")
+	needleSkeleton := searchSkeleton(needleCompact)
+	best := 0
+	for index, value := range values {
+		score := searchValueScore(needle, needleCompact, needleSkeleton, value)
+		if score == 0 {
+			continue
+		}
+		// Prefer earlier fields like item code over later fields like display name.
+		score -= index * 10
+		if score > best {
+			best = score
+		}
+	}
+	return best
+}
+
+func buildSearchLikeVariants(query string) []string {
+	variants := BuildSearchQueryVariants(query)
+	result := make([]string, 0, len(variants))
+	seen := make(map[string]struct{}, len(variants))
+	for _, variant := range variants {
+		trimmed := strings.ReplaceAll(strings.TrimSpace(variant), `"`, "")
+		if trimmed == "" {
+			continue
+		}
+		like := "%" + trimmed + "%"
+		if _, ok := seen[like]; ok {
+			continue
+		}
+		seen[like] = struct{}{}
+		result = append(result, like)
+	}
+	return result
+}
+
+func matchesSearchQueryVariants(query string, values ...string) bool {
+	return SearchQueryScore(query, values...) > 0
+}
+
+func searchValueScore(needle, needleCompact, needleSkeleton, value string) int {
+	haystack := NormalizeForSearch(value)
+	if haystack == "" {
+		return 0
+	}
+	switch {
+	case haystack == needle:
+		return 1000
+	case strings.HasPrefix(haystack, needle):
+		return 850
+	case hasWordPrefix(haystack, needle):
+		return 700
+	case strings.Contains(haystack, needle):
+		return 550
+	}
+
+	if needleCompact == "" {
+		return 0
+	}
+	haystackCompact := strings.ReplaceAll(haystack, " ", "")
+	switch {
+	case haystackCompact == needleCompact:
+		return 500
+	case strings.HasPrefix(haystackCompact, needleCompact):
+		return 425
+	case strings.Contains(haystackCompact, needleCompact):
+		return 350
+	}
+
+	if needleSkeleton == "" || len(needleSkeleton) < 3 {
+		return 0
+	}
+	haystackSkeleton := searchSkeleton(haystackCompact)
+	switch {
+	case haystackSkeleton == needleSkeleton:
+		return 250
+	case strings.HasPrefix(haystackSkeleton, needleSkeleton):
+		return 175
+	case strings.Contains(haystackSkeleton, needleSkeleton):
+		return 125
+	default:
+		return 0
+	}
+}
+
+func hasWordPrefix(haystack, needle string) bool {
+	for _, word := range strings.Fields(haystack) {
+		if strings.HasPrefix(word, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func searchSkeleton(input string) string {
+	if input == "" {
+		return ""
+	}
+
+	var buffer strings.Builder
+	buffer.Grow(len(input))
+	for _, r := range input {
+		switch r {
+		case 'a', 'e', 'i', 'o', 'u':
+			continue
+		default:
+			buffer.WriteRune(r)
+		}
+	}
+	return buffer.String()
 }
 
 func transliterateCyrillicToLatin(input string) string {

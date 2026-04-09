@@ -87,6 +87,18 @@ type deliveryNoteStatusRow struct {
 	AccordCustomerState int
 }
 
+type supplierItemSearchEntry struct {
+	item        core.SupplierItem
+	searchTerms []string
+}
+
+type searchPatterns struct {
+	primaryQuery   string
+	primaryLike    string
+	secondaryQuery string
+	secondaryLike  string
+}
+
 const (
 	deliveryFlowStateSubmittedDB = 1
 	customerStateRejectedDB      = 2
@@ -250,124 +262,138 @@ func (r *Reader) SearchWerkaCustomersPage(ctx context.Context, query string, lim
 
 func (r *Reader) SearchWerkaCustomerItemsPage(ctx context.Context, customerRef, query string, limit, offset int) ([]core.SupplierItem, error) {
 	limit = clampLimit(limit, 50, 500)
-	like := likePattern(query)
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT DISTINCT
-			i.item_code,
-			COALESCE(NULLIF(i.item_name, ''), i.item_code) AS item_name,
-			COALESCE(NULLIF(i.stock_uom, ''), 'Nos') AS stock_uom
-		FROM `+"`tabItem Customer Detail`"+` icd
-		INNER JOIN tabItem i ON i.name = icd.parent
-		WHERE icd.customer_name = ?
-		  AND i.disabled = 0
-		  AND (? = '' OR i.item_code LIKE ? ESCAPE '\\' OR i.item_name LIKE ? ESCAPE '\\')
-		ORDER BY i.item_name ASC
-		LIMIT ? OFFSET ?`,
-		strings.TrimSpace(customerRef),
-		strings.TrimSpace(query), like, like, limit, max(offset, 0),
-	)
+	if strings.TrimSpace(query) == "" {
+		rows, err := r.db.QueryContext(ctx, `
+			SELECT DISTINCT
+				i.item_code,
+				COALESCE(NULLIF(i.item_name, ''), i.item_code) AS item_name,
+				COALESCE(NULLIF(i.stock_uom, ''), 'Nos') AS stock_uom
+			FROM `+"`tabItem Customer Detail`"+` icd
+			INNER JOIN tabItem i ON i.name = icd.parent
+			WHERE icd.customer_name = ?
+			  AND i.disabled = 0
+			ORDER BY i.item_name ASC
+			LIMIT ? OFFSET ?`,
+			strings.TrimSpace(customerRef),
+			limit,
+			max(offset, 0),
+		)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		result := make([]core.SupplierItem, 0, limit)
+		for rows.Next() {
+			var item core.SupplierItem
+			if err := rows.Scan(&item.Code, &item.Name, &item.UOM); err != nil {
+				return nil, err
+			}
+			item.Warehouse = r.defaultWarehouse
+			result = append(result, item)
+		}
+		return result, rows.Err()
+	}
+
+	items, err := r.loadAllWerkaCustomerItemSearchEntries(ctx, customerRef)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	result := make([]core.SupplierItem, 0, limit)
-	for rows.Next() {
-		var item core.SupplierItem
-		if err := rows.Scan(&item.Code, &item.Name, &item.UOM); err != nil {
-			return nil, err
-		}
-		item.Warehouse = r.defaultWarehouse
-		result = append(result, item)
-	}
-	return result, rows.Err()
+	return slicePage(rankSupplierItemSearchEntriesByQuery(items, query), offset, limit), nil
 }
 
 func (r *Reader) SearchWerkaSupplierItemsPage(ctx context.Context, supplierRef, query string, limit, offset int) ([]core.SupplierItem, error) {
 	limit = clampLimit(limit, 50, 500)
-	like := likePattern(query)
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT DISTINCT
-			i.item_code,
-			COALESCE(NULLIF(i.item_name, ''), i.item_code) AS item_name,
-			COALESCE(NULLIF(i.stock_uom, ''), 'Nos') AS stock_uom
-		FROM `+"`tabItem Supplier`"+` isup
-		INNER JOIN tabItem i ON i.name = isup.parent
-		WHERE isup.supplier = ?
-		  AND i.disabled = 0
-		  AND (? = '' OR i.item_code LIKE ? ESCAPE '\\' OR i.item_name LIKE ? ESCAPE '\\')
-		ORDER BY i.item_name ASC
-		LIMIT ? OFFSET ?`,
-		strings.TrimSpace(supplierRef),
-		strings.TrimSpace(query), like, like, limit, max(offset, 0),
-	)
+	if strings.TrimSpace(query) == "" {
+		rows, err := r.db.QueryContext(ctx, `
+			SELECT DISTINCT
+				i.item_code,
+				COALESCE(NULLIF(i.item_name, ''), i.item_code) AS item_name,
+				COALESCE(NULLIF(i.stock_uom, ''), 'Nos') AS stock_uom
+			FROM `+"`tabItem Supplier`"+` isup
+			INNER JOIN tabItem i ON i.name = isup.parent
+			WHERE isup.supplier = ?
+			  AND i.disabled = 0
+			ORDER BY i.item_name ASC
+			LIMIT ? OFFSET ?`,
+			strings.TrimSpace(supplierRef),
+			limit,
+			max(offset, 0),
+		)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		result := make([]core.SupplierItem, 0, limit)
+		for rows.Next() {
+			var item core.SupplierItem
+			if err := rows.Scan(&item.Code, &item.Name, &item.UOM); err != nil {
+				return nil, err
+			}
+			item.Warehouse = r.defaultWarehouse
+			result = append(result, item)
+		}
+		return result, rows.Err()
+	}
+
+	items, err := r.loadAllWerkaSupplierItems(ctx, supplierRef)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	result := make([]core.SupplierItem, 0, limit)
-	for rows.Next() {
-		var item core.SupplierItem
-		if err := rows.Scan(&item.Code, &item.Name, &item.UOM); err != nil {
-			return nil, err
-		}
-		item.Warehouse = r.defaultWarehouse
-		result = append(result, item)
-	}
-	return result, rows.Err()
+	return slicePage(rankSupplierItemsByQuery(items, query), offset, limit), nil
 }
 
 func (r *Reader) SearchWerkaCustomerItemOptionsPage(ctx context.Context, query string, limit, offset int) ([]core.CustomerItemOption, error) {
 	limit = clampLimit(limit, 50, 500)
-	like := likePattern(query)
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT DISTINCT
-			c.name,
-			COALESCE(NULLIF(c.customer_name, ''), c.name) AS customer_name,
-			COALESCE(c.mobile_no, '') AS mobile_no,
-			i.item_code,
-			COALESCE(NULLIF(i.item_name, ''), i.item_code) AS item_name,
-			COALESCE(NULLIF(i.stock_uom, ''), 'Nos') AS stock_uom
-		FROM `+"`tabItem Customer Detail`"+` icd
-		INNER JOIN tabItem i ON i.name = icd.parent
-		INNER JOIN tabCustomer c ON c.name = icd.customer_name
-		WHERE c.disabled = 0
-		  AND i.disabled = 0
-		  AND (
-			? = ''
-			OR i.item_code LIKE ? ESCAPE '\\'
-			OR i.item_name LIKE ? ESCAPE '\\'
-			OR c.name LIKE ? ESCAPE '\\'
-			OR c.customer_name LIKE ? ESCAPE '\\'
-			OR COALESCE(c.mobile_no, '') LIKE ? ESCAPE '\\'
-		  )
-		ORDER BY i.item_name ASC, c.customer_name ASC
-		LIMIT ? OFFSET ?`,
-		strings.TrimSpace(query), like, like, like, like, like, limit, max(offset, 0),
-	)
+	if strings.TrimSpace(query) == "" {
+		rows, err := r.db.QueryContext(ctx, `
+			SELECT DISTINCT
+				c.name,
+				COALESCE(NULLIF(c.customer_name, ''), c.name) AS customer_name,
+				COALESCE(c.mobile_no, '') AS mobile_no,
+				i.item_code,
+				COALESCE(NULLIF(i.item_name, ''), i.item_code) AS item_name,
+				COALESCE(NULLIF(i.stock_uom, ''), 'Nos') AS stock_uom
+			FROM `+"`tabItem Customer Detail`"+` icd
+			INNER JOIN tabItem i ON i.name = icd.parent
+			INNER JOIN tabCustomer c ON c.name = icd.customer_name
+			WHERE c.disabled = 0
+			  AND i.disabled = 0
+			ORDER BY i.item_name ASC, c.customer_name ASC
+			LIMIT ? OFFSET ?`,
+			limit,
+			max(offset, 0),
+		)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		result := make([]core.CustomerItemOption, 0, limit)
+		for rows.Next() {
+			var item core.CustomerItemOption
+			if err := rows.Scan(
+				&item.CustomerRef,
+				&item.CustomerName,
+				&item.CustomerPhone,
+				&item.ItemCode,
+				&item.ItemName,
+				&item.UOM,
+			); err != nil {
+				return nil, err
+			}
+			item.Warehouse = r.defaultWarehouse
+			result = append(result, item)
+		}
+		return result, rows.Err()
+	}
+
+	items, err := r.loadAllWerkaCustomerItemOptions(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	result := make([]core.CustomerItemOption, 0, limit)
-	for rows.Next() {
-		var item core.CustomerItemOption
-		if err := rows.Scan(
-			&item.CustomerRef,
-			&item.CustomerName,
-			&item.CustomerPhone,
-			&item.ItemCode,
-			&item.ItemName,
-			&item.UOM,
-		); err != nil {
-			return nil, err
-		}
-		item.Warehouse = r.defaultWarehouse
-		result = append(result, item)
-	}
-	return result, rows.Err()
+	return slicePage(rankCustomerItemOptionsByQuery(items, query), offset, limit), nil
 }
 
 func (r *Reader) WerkaSummary(ctx context.Context) (core.WerkaHomeSummary, error) {
@@ -1186,4 +1212,307 @@ func likePattern(query string) string {
 	}
 	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 	return "%" + replacer.Replace(trimmed) + "%"
+}
+
+func (r *Reader) loadAllWerkaCustomerItems(ctx context.Context, customerRef string) ([]core.SupplierItem, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT DISTINCT
+			i.item_code,
+			COALESCE(NULLIF(i.item_name, ''), i.item_code) AS item_name,
+			COALESCE(NULLIF(i.stock_uom, ''), 'Nos') AS stock_uom
+		FROM `+"`tabItem Customer Detail`"+` icd
+		INNER JOIN tabItem i ON i.name = icd.parent
+		WHERE icd.customer_name = ?
+		  AND i.disabled = 0
+		ORDER BY i.item_name ASC`,
+		strings.TrimSpace(customerRef),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]core.SupplierItem, 0, 64)
+	for rows.Next() {
+		var item core.SupplierItem
+		if err := rows.Scan(&item.Code, &item.Name, &item.UOM); err != nil {
+			return nil, err
+		}
+		item.Warehouse = r.defaultWarehouse
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (r *Reader) loadAllWerkaCustomerItemSearchEntries(ctx context.Context, customerRef string) ([]supplierItemSearchEntry, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT
+			i.item_code,
+			COALESCE(NULLIF(i.item_name, ''), i.item_code) AS item_name,
+			COALESCE(NULLIF(i.stock_uom, ''), 'Nos') AS stock_uom,
+			COALESCE(GROUP_CONCAT(DISTINCT icd_all.customer_name ORDER BY icd_all.customer_name SEPARATOR '\n'), '') AS customer_refs,
+			COALESCE(GROUP_CONCAT(DISTINCT COALESCE(NULLIF(c.customer_name, ''), c.name) ORDER BY COALESCE(NULLIF(c.customer_name, ''), c.name) SEPARATOR '\n'), '') AS customer_names
+		FROM `+"`tabItem Customer Detail`"+` icd_selected
+		INNER JOIN tabItem i ON i.name = icd_selected.parent
+		LEFT JOIN `+"`tabItem Customer Detail`"+` icd_all ON icd_all.parent = i.name
+		LEFT JOIN tabCustomer c ON c.name = icd_all.customer_name
+		WHERE icd_selected.customer_name = ?
+		  AND i.disabled = 0
+		GROUP BY i.item_code, item_name, stock_uom
+		ORDER BY item_name ASC`,
+		strings.TrimSpace(customerRef),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]supplierItemSearchEntry, 0, 64)
+	for rows.Next() {
+		var (
+			item          core.SupplierItem
+			customerRefs  string
+			customerNames string
+		)
+		if err := rows.Scan(&item.Code, &item.Name, &item.UOM, &customerRefs, &customerNames); err != nil {
+			return nil, err
+		}
+		item.Warehouse = r.defaultWarehouse
+		searchTerms := []string{item.Code, item.Name}
+		searchTerms = appendSearchTerms(searchTerms, customerRefs)
+		searchTerms = appendSearchTerms(searchTerms, customerNames)
+		result = append(result, supplierItemSearchEntry{
+			item:        item,
+			searchTerms: searchTerms,
+		})
+	}
+	return result, rows.Err()
+}
+
+func (r *Reader) loadAllWerkaSupplierItems(ctx context.Context, supplierRef string) ([]core.SupplierItem, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT DISTINCT
+			i.item_code,
+			COALESCE(NULLIF(i.item_name, ''), i.item_code) AS item_name,
+			COALESCE(NULLIF(i.stock_uom, ''), 'Nos') AS stock_uom
+		FROM `+"`tabItem Supplier`"+` isup
+		INNER JOIN tabItem i ON i.name = isup.parent
+		WHERE isup.supplier = ?
+		  AND i.disabled = 0
+		ORDER BY i.item_name ASC`,
+		strings.TrimSpace(supplierRef),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]core.SupplierItem, 0, 64)
+	for rows.Next() {
+		var item core.SupplierItem
+		if err := rows.Scan(&item.Code, &item.Name, &item.UOM); err != nil {
+			return nil, err
+		}
+		item.Warehouse = r.defaultWarehouse
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (r *Reader) loadAllWerkaCustomerItemOptions(ctx context.Context) ([]core.CustomerItemOption, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT DISTINCT
+			c.name,
+			COALESCE(NULLIF(c.customer_name, ''), c.name) AS customer_name,
+			COALESCE(c.mobile_no, '') AS mobile_no,
+			i.item_code,
+			COALESCE(NULLIF(i.item_name, ''), i.item_code) AS item_name,
+			COALESCE(NULLIF(i.stock_uom, ''), 'Nos') AS stock_uom
+		FROM `+"`tabItem Customer Detail`"+` icd
+		INNER JOIN tabItem i ON i.name = icd.parent
+		INNER JOIN tabCustomer c ON c.name = icd.customer_name
+		WHERE c.disabled = 0
+		  AND i.disabled = 0
+		ORDER BY i.item_name ASC, c.customer_name ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]core.CustomerItemOption, 0, 128)
+	for rows.Next() {
+		var item core.CustomerItemOption
+		if err := rows.Scan(
+			&item.CustomerRef,
+			&item.CustomerName,
+			&item.CustomerPhone,
+			&item.ItemCode,
+			&item.ItemName,
+			&item.UOM,
+		); err != nil {
+			return nil, err
+		}
+		item.Warehouse = r.defaultWarehouse
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func rankSupplierItemsByQuery(items []core.SupplierItem, query string) []core.SupplierItem {
+	if strings.TrimSpace(query) == "" {
+		return items
+	}
+
+	type scoredItem struct {
+		item  core.SupplierItem
+		score int
+	}
+
+	scored := make([]scoredItem, 0, len(items))
+	for _, item := range items {
+		score := erpnext.SearchQueryScore(query, item.Code, item.Name)
+		if score == 0 {
+			continue
+		}
+		scored = append(scored, scoredItem{item: item, score: score})
+	}
+
+	sort.Slice(scored, func(i, j int) bool {
+		if scored[i].score != scored[j].score {
+			return scored[i].score > scored[j].score
+		}
+		leftName := strings.ToLower(strings.TrimSpace(scored[i].item.Name))
+		rightName := strings.ToLower(strings.TrimSpace(scored[j].item.Name))
+		if leftName != rightName {
+			return leftName < rightName
+		}
+		return strings.ToLower(strings.TrimSpace(scored[i].item.Code)) < strings.ToLower(strings.TrimSpace(scored[j].item.Code))
+	})
+
+	result := make([]core.SupplierItem, 0, len(scored))
+	for _, item := range scored {
+		result = append(result, item.item)
+	}
+	return result
+}
+
+func rankSupplierItemSearchEntriesByQuery(items []supplierItemSearchEntry, query string) []core.SupplierItem {
+	if strings.TrimSpace(query) == "" {
+		result := make([]core.SupplierItem, 0, len(items))
+		for _, item := range items {
+			result = append(result, item.item)
+		}
+		return result
+	}
+
+	type scoredItem struct {
+		item  core.SupplierItem
+		score int
+	}
+
+	scored := make([]scoredItem, 0, len(items))
+	for _, item := range items {
+		score := erpnext.SearchQueryScore(query, item.searchTerms...)
+		if score == 0 {
+			continue
+		}
+		scored = append(scored, scoredItem{item: item.item, score: score})
+	}
+
+	sort.Slice(scored, func(i, j int) bool {
+		if scored[i].score != scored[j].score {
+			return scored[i].score > scored[j].score
+		}
+		leftName := strings.ToLower(strings.TrimSpace(scored[i].item.Name))
+		rightName := strings.ToLower(strings.TrimSpace(scored[j].item.Name))
+		if leftName != rightName {
+			return leftName < rightName
+		}
+		return strings.ToLower(strings.TrimSpace(scored[i].item.Code)) < strings.ToLower(strings.TrimSpace(scored[j].item.Code))
+	})
+
+	result := make([]core.SupplierItem, 0, len(scored))
+	for _, item := range scored {
+		result = append(result, item.item)
+	}
+	return result
+}
+
+func appendSearchTerms(terms []string, joined string) []string {
+	for _, part := range strings.Split(joined, "\n") {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		terms = append(terms, trimmed)
+	}
+	return terms
+}
+
+func rankCustomerItemOptionsByQuery(items []core.CustomerItemOption, query string) []core.CustomerItemOption {
+	if strings.TrimSpace(query) == "" {
+		return items
+	}
+
+	type scoredOption struct {
+		item          core.CustomerItemOption
+		itemScore     int
+		customerScore int
+	}
+
+	scored := make([]scoredOption, 0, len(items))
+	for _, item := range items {
+		itemScore := erpnext.SearchQueryScore(query, item.ItemCode, item.ItemName)
+		customerScore := erpnext.SearchQueryScore(query, item.CustomerName, item.CustomerRef, item.CustomerPhone)
+		if itemScore == 0 && customerScore == 0 {
+			continue
+		}
+		scored = append(scored, scoredOption{
+			item:          item,
+			itemScore:     itemScore,
+			customerScore: customerScore,
+		})
+	}
+
+	sort.Slice(scored, func(i, j int) bool {
+		if scored[i].itemScore != scored[j].itemScore {
+			return scored[i].itemScore > scored[j].itemScore
+		}
+		if scored[i].customerScore != scored[j].customerScore {
+			return scored[i].customerScore > scored[j].customerScore
+		}
+		leftName := strings.ToLower(strings.TrimSpace(scored[i].item.ItemName))
+		rightName := strings.ToLower(strings.TrimSpace(scored[j].item.ItemName))
+		if leftName != rightName {
+			return leftName < rightName
+		}
+		leftCustomer := strings.ToLower(strings.TrimSpace(scored[i].item.CustomerName))
+		rightCustomer := strings.ToLower(strings.TrimSpace(scored[j].item.CustomerName))
+		if leftCustomer != rightCustomer {
+			return leftCustomer < rightCustomer
+		}
+		return strings.ToLower(strings.TrimSpace(scored[i].item.ItemCode)) < strings.ToLower(strings.TrimSpace(scored[j].item.ItemCode))
+	})
+
+	result := make([]core.CustomerItemOption, 0, len(scored))
+	for _, item := range scored {
+		result = append(result, item.item)
+	}
+	return result
+}
+
+func slicePage[T any](items []T, offset, limit int) []T {
+	start := max(offset, 0)
+	if start >= len(items) {
+		return []T{}
+	}
+
+	end := len(items)
+	if limit > 0 && start+limit < end {
+		end = start + limit
+	}
+
+	result := make([]T, end-start)
+	copy(result, items[start:end])
+	return result
 }

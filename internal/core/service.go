@@ -584,22 +584,15 @@ func (a *ERPAuthenticator) WerkaPending(ctx context.Context, limit int) ([]Dispa
 
 func (a *ERPAuthenticator) WerkaHome(ctx context.Context, pendingLimit int) (WerkaHomeData, error) {
 	if a.reader != nil {
-		readerCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
-		home, err := a.reader.WerkaHome(readerCtx, pendingLimit)
-		if err == nil {
-			return home, nil
-		}
+		return a.reader.WerkaHome(ctx, pendingLimit)
 	}
 	summary, err := a.WerkaSummary(ctx)
 	if err != nil {
 		return WerkaHomeData{}, err
 	}
-	pendingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	pending, err := a.WerkaPending(pendingCtx, pendingLimit)
+	pending, err := a.WerkaPending(ctx, pendingLimit)
 	if err != nil {
-		pending = nil
+		return WerkaHomeData{}, err
 	}
 	return WerkaHomeData{
 		Summary:      summary,
@@ -609,12 +602,7 @@ func (a *ERPAuthenticator) WerkaHome(ctx context.Context, pendingLimit int) (Wer
 
 func (a *ERPAuthenticator) WerkaSummary(ctx context.Context) (WerkaHomeSummary, error) {
 	if a.reader != nil {
-		readerCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
-		summary, err := a.reader.WerkaSummary(readerCtx)
-		if err == nil {
-			return summary, nil
-		}
+		return a.reader.WerkaSummary(ctx)
 	}
 	items, err := a.collectTelegramPurchaseReceipts(ctx)
 	if err != nil {
@@ -657,6 +645,9 @@ func (a *ERPAuthenticator) WerkaSummary(ctx context.Context) (WerkaHomeSummary, 
 }
 
 func (a *ERPAuthenticator) WerkaStatusBreakdown(ctx context.Context, kind string) ([]WerkaStatusBreakdownEntry, error) {
+	if a.reader != nil {
+		return a.reader.WerkaStatusBreakdown(ctx, kind)
+	}
 	items, err := a.collectTelegramPurchaseReceipts(ctx)
 	if err != nil {
 		return nil, err
@@ -740,6 +731,9 @@ func (a *ERPAuthenticator) WerkaStatusBreakdown(ctx context.Context, kind string
 }
 
 func (a *ERPAuthenticator) WerkaStatusDetails(ctx context.Context, kind, supplierRef string) ([]DispatchRecord, error) {
+	if a.reader != nil {
+		return a.reader.WerkaStatusDetails(ctx, kind, supplierRef)
+	}
 	items, err := a.collectTelegramPurchaseReceipts(ctx)
 	if err != nil {
 		return nil, err
@@ -784,12 +778,7 @@ func (a *ERPAuthenticator) WerkaStatusDetails(ctx context.Context, kind, supplie
 
 func (a *ERPAuthenticator) WerkaHistory(ctx context.Context) ([]DispatchRecord, error) {
 	if a.reader != nil {
-		readerCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
-		items, err := a.reader.WerkaHistory(readerCtx)
-		if err == nil {
-			return items, nil
-		}
+		return a.reader.WerkaHistory(ctx)
 	}
 	return a.collectWerkaHistoryRecords(ctx)
 }
@@ -1502,15 +1491,7 @@ func (a *ERPAuthenticator) CreateWerkaCustomerIssue(ctx context.Context, princip
 	if err != nil {
 		return WerkaCustomerIssueRecord{}, err
 	}
-	items, err := a.erp.ListCustomerItems(
-		ctx,
-		a.baseURL,
-		a.apiKey,
-		a.apiSecret,
-		customer.ID,
-		strings.TrimSpace(itemCode),
-		500,
-	)
+	items, err := a.erp.ListCustomerItems(ctx, a.baseURL, a.apiKey, a.apiSecret, customer.ID, "", 500)
 	if err != nil {
 		return WerkaCustomerIssueRecord{}, err
 	}
@@ -1590,19 +1571,6 @@ func (a *ERPAuthenticator) CreateWerkaCustomerIssue(ctx context.Context, princip
 		Qty:          qty,
 		CreatedLabel: currentTimestampLabel(),
 	}, nil
-}
-
-func (a *ERPAuthenticator) WarmupWerkaCustomerIssue(ctx context.Context) error {
-	if _, err := a.resolveWarehouse(ctx); err != nil {
-		return err
-	}
-	if _, err := a.resolveCompany(ctx); err != nil {
-		return err
-	}
-	if err := a.erp.EnsureDeliveryNoteStateFields(ctx, a.baseURL, a.apiKey, a.apiSecret); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (a *ERPAuthenticator) WerkaSupplierItems(ctx context.Context, supplierRef, query string, limit int) ([]SupplierItem, error) {
@@ -1736,10 +1704,7 @@ func (a *ERPAuthenticator) CustomerHistory(ctx context.Context, principal Princi
 
 func (a *ERPAuthenticator) CustomerSummary(ctx context.Context, principal Principal) (CustomerHomeSummary, error) {
 	if a.reader != nil {
-		summary, err := a.reader.CustomerSummary(ctx, principal.Ref)
-		if err == nil {
-			return summary, nil
-		}
+		return a.reader.CustomerSummary(ctx, principal.Ref)
 	}
 	items, err := a.collectCustomerDeliveryNotes(ctx, principal.Ref)
 	if err != nil {

@@ -222,20 +222,31 @@ func (c *Client) ListCustomerItems(ctx context.Context, baseURL, apiKey, apiSecr
 		items = append(items, detailed)
 	}
 
-	trimmedQuery := strings.ToLower(strings.TrimSpace(query))
-	if trimmedQuery != "" {
+	if strings.TrimSpace(query) != "" {
 		filtered := make([]Item, 0, len(items))
 		for _, item := range items {
-			if strings.Contains(strings.ToLower(strings.TrimSpace(item.Code)), trimmedQuery) ||
-				strings.Contains(strings.ToLower(strings.TrimSpace(item.Name)), trimmedQuery) {
-				filtered = append(filtered, item)
+			if SearchQueryScore(query, item.Code, item.Name) == 0 {
+				continue
 			}
+			filtered = append(filtered, item)
 		}
 		items = filtered
 	}
 
 	sort.Slice(items, func(i, j int) bool {
-		return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+		if strings.TrimSpace(query) != "" {
+			leftScore := SearchQueryScore(query, items[i].Code, items[i].Name)
+			rightScore := SearchQueryScore(query, items[j].Code, items[j].Name)
+			if leftScore != rightScore {
+				return leftScore > rightScore
+			}
+		}
+		leftName := strings.ToLower(strings.TrimSpace(items[i].Name))
+		rightName := strings.ToLower(strings.TrimSpace(items[j].Name))
+		if leftName != rightName {
+			return leftName < rightName
+		}
+		return strings.ToLower(strings.TrimSpace(items[i].Code)) < strings.ToLower(strings.TrimSpace(items[j].Code))
 	})
 	if len(items) > limit {
 		items = items[:limit]

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"log"
 	"net/http"
 	"os"
@@ -100,18 +99,6 @@ func main() {
 		service,
 		mobileapi.NewPersistentSessionManager(sessionStorePath, sessionTTL),
 	)
-	server.SetWerkaAISearchConfig(
-		strings.TrimSpace(os.Getenv("GEMINI_API_KEY")),
-		strings.TrimSpace(os.Getenv("GEMINI_VISION_MODEL")),
-		cfg.RequestTimeout,
-	)
-	warmupCtx, warmupCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	if err := service.WarmupWerkaCustomerIssue(warmupCtx); err != nil {
-		log.Printf("werka customer issue warmup skipped: %v", err)
-	} else {
-		log.Printf("werka customer issue warmup ready")
-	}
-	warmupCancel()
 	log.Printf("core listening on %s", addr)
 	if err := http.ListenAndServe(addr, server.Handler()); err != nil {
 		log.Fatalf("core stopped: %v", err)

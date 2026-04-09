@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -711,16 +712,7 @@ func (c *Client) searchItemsByCodes(ctx context.Context, normalized, apiKey, api
 	params := url.Values{}
 	params.Set("fields", `["name","item_name","stock_uom"]`)
 	params.Set("filters", string(filtersJSON))
-	params.Set("limit_page_length", fmt.Sprintf("%d", limit))
-
-	if trimmed := strings.TrimSpace(query); trimmed != "" {
-		like := "%" + strings.ReplaceAll(trimmed, "\"", "") + "%"
-		orFiltersJSON, _ := json.Marshal([][]interface{}{
-			{"name", "like", like},
-			{"item_name", "like", like},
-		})
-		params.Set("or_filters", string(orFiltersJSON))
-	}
+	params.Set("limit_page_length", fmt.Sprintf("%d", len(itemCodes)))
 
 	var payload struct {
 		Data []struct {
@@ -745,6 +737,32 @@ func (c *Client) searchItemsByCodes(ctx context.Context, normalized, apiKey, api
 			Name: displayName,
 			UOM:  row.StockUOM,
 		})
+	}
+	if strings.TrimSpace(query) != "" {
+		filtered := make([]Item, 0, len(items))
+		for _, item := range items {
+			if SearchQueryScore(query, item.Code, item.Name) == 0 {
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		items = filtered
+		sort.Slice(items, func(i, j int) bool {
+			leftScore := SearchQueryScore(query, items[i].Code, items[i].Name)
+			rightScore := SearchQueryScore(query, items[j].Code, items[j].Name)
+			if leftScore != rightScore {
+				return leftScore > rightScore
+			}
+			leftName := strings.ToLower(strings.TrimSpace(items[i].Name))
+			rightName := strings.ToLower(strings.TrimSpace(items[j].Name))
+			if leftName != rightName {
+				return leftName < rightName
+			}
+			return strings.ToLower(strings.TrimSpace(items[i].Code)) < strings.ToLower(strings.TrimSpace(items[j].Code))
+		})
+	}
+	if len(items) > limit {
+		items = items[:limit]
 	}
 	return items, nil
 }

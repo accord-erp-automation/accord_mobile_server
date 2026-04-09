@@ -1,7 +1,6 @@
 package mobileapi
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,7 +18,6 @@ type Server struct {
 	sessions *SessionManager
 	push     *PushTokenStore
 	sender   pushSender
-	aiSearch *werkaAISearchService
 }
 
 func NewServer(auth *ERPAuthenticator) *Server {
@@ -67,7 +65,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/mobile/werka/home", s.handleWerkaHome)
 	mux.HandleFunc("/v1/mobile/werka/customers", s.handleWerkaCustomers)
 	mux.HandleFunc("/v1/mobile/werka/suppliers", s.handleWerkaSuppliers)
-	mux.HandleFunc("/v1/mobile/werka/ai-search-suggestion", s.handleWerkaAISearchSuggestion)
 	mux.HandleFunc("/v1/mobile/werka/supplier-items", s.handleWerkaSupplierItems)
 	mux.HandleFunc("/v1/mobile/werka/customer-items", s.handleWerkaCustomerItems)
 	mux.HandleFunc("/v1/mobile/werka/customer-item-options", s.handleWerkaCustomerItemOptions)
@@ -162,9 +159,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	var werkaHome *WerkaHomeData
 	if principal.Role == RoleWerka {
-		warmCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-		if data, err := s.auth.WerkaHome(warmCtx, 20); err == nil {
+		if data, err := s.auth.WerkaHome(r.Context(), 20); err == nil {
 			werkaHome = &data
 		}
 	}

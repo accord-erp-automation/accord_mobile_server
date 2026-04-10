@@ -1,5 +1,8 @@
 .env
 .core.log
 .core.pid
+.tmp/
+build/
+core
 data/
 *firebase-adminsdk*.json

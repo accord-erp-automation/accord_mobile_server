@@ -104,45 +104,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/mobile/admin/items", s.handleAdminItems)
 	mux.HandleFunc("/v1/mobile/admin/activity", s.handleAdminActivity)
 	mux.HandleFunc("/v1/mobile/admin/werka/code/regenerate", s.handleAdminWerkaCodeRegenerate)
-	return withCORS(mux)
-}
-
-func withCORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := strings.TrimSpace(r.Header.Get("Origin"))
-		if origin != "" && isAllowedCORSOrigin(origin) {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Vary", "Origin")
-		}
-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization,Content-Type,X-Requested-With")
-		w.Header().Set("Access-Control-Expose-Headers", "Content-Length,Content-Type")
-		w.Header().Set("Access-Control-Max-Age", "86400")
-
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
-func isAllowedCORSOrigin(origin string) bool {
-	origin = strings.TrimSpace(origin)
-	if origin == "" {
-		return false
-	}
-	switch {
-	case strings.HasPrefix(origin, "http://localhost:"),
-		strings.HasPrefix(origin, "http://127.0.0.1:"),
-		strings.HasPrefix(origin, "http://[::1]:"),
-		strings.EqualFold(origin, "https://core.wspace.sbs"),
-		strings.EqualFold(origin, "http://core.wspace.sbs"):
-		return true
-	default:
-		return false
-	}
+	return mux
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {

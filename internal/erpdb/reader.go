@@ -557,6 +557,91 @@ func (r *Reader) WerkaHome(ctx context.Context, pendingLimit int) (core.WerkaHom
 	return data, nil
 }
 
+func (r *Reader) WerkaPending(ctx context.Context, limit int) ([]core.DispatchRecord, error) {
+	receipts, err := r.pendingTelegramReceiptRows(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	deliveryNotes, err := r.pendingDeliveryNoteRows(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]core.DispatchRecord, 0, 64)
+	for _, row := range receipts {
+		status, include := classifyWerkaReceipt(row)
+		if !include || (status != "pending" && status != "draft") {
+			continue
+		}
+		result = append(result, purchaseReceiptRowToDispatchRecord(row))
+	}
+	for _, row := range deliveryNotes {
+		if !deliveryVisible(row) || deliveryStatus(row) != "pending" {
+			continue
+		}
+		result = append(result, deliveryNoteRowToDispatchRecord(row))
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedLabel > result[j].CreatedLabel
+	})
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
+}
+
+func (r *Reader) WerkaArchive(ctx context.Context, kind, period string, from, to time.Time) (core.WerkaArchiveResponse, error) {
+	normalizedKind := normalizeArchiveKind(kind)
+	normalizedPeriod := normalizeArchivePeriod(period)
+	records := make([]core.DispatchRecord, 0, 64)
+
+	if normalizedKind == "received" || normalizedKind == "returned" {
+		receipts, err := r.telegramReceiptRowsFiltered(ctx, "", from, to)
+		if err != nil {
+			return core.WerkaArchiveResponse{}, err
+		}
+		for _, row := range receipts {
+			status, include := classifyWerkaReceipt(row)
+			if !include {
+				continue
+			}
+			record := purchaseReceiptRowToDispatchRecord(row)
+			if archiveIncludesRecord(normalizedKind, record, status) {
+				records = append(records, record)
+			}
+		}
+	}
+
+	if normalizedKind == "sent" || normalizedKind == "returned" {
+		deliveryNotes, err := r.deliveryNoteRowsFiltered(ctx, "", from, to)
+		if err != nil {
+			return core.WerkaArchiveResponse{}, err
+		}
+		for _, row := range deliveryNotes {
+			if !deliveryVisible(row) {
+				continue
+			}
+			record := deliveryNoteRowToDispatchRecord(row)
+			if archiveIncludesRecord(normalizedKind, record, record.Status) {
+				records = append(records, record)
+			}
+		}
+	}
+
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].CreatedLabel > records[j].CreatedLabel
+	})
+
+	return core.WerkaArchiveResponse{
+		Kind:    normalizedKind,
+		Period:  normalizedPeriod,
+		From:    formatArchiveDate(from),
+		To:      formatArchiveDate(to),
+		Summary: buildArchiveSummary(normalizedKind, records),
+		Items:   records,
+	}, nil
+}
+
 func (r *Reader) WerkaStatusBreakdown(ctx context.Context, kind string) ([]core.WerkaStatusBreakdownEntry, error) {
 	receipts, err := r.telegramReceiptRows(ctx, "")
 	if err != nil {
@@ -693,6 +778,25 @@ func (r *Reader) SupplierSummary(ctx context.Context, supplierRef string) (core.
 	return summary, nil
 }
 
+func (r *Reader) SupplierHistory(ctx context.Context, supplierRef string) ([]core.DispatchRecord, error) {
+	rows, err := r.telegramReceiptRows(ctx, supplierRef)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]core.DispatchRecord, 0, len(rows))
+	for _, row := range rows {
+		_, include := classifyWerkaReceipt(row)
+		if !include {
+			continue
+		}
+		result = append(result, purchaseReceiptRowToDispatchRecord(row))
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedLabel > result[j].CreatedLabel
+	})
+	return result, nil
+}
+
 func (r *Reader) CustomerSummary(ctx context.Context, customerRef string) (core.CustomerHomeSummary, error) {
 	rows, err := r.deliveryNoteRows(ctx, customerRef)
 	if err != nil {
@@ -752,10 +856,18 @@ func (r *Reader) WerkaHistory(ctx context.Context) ([]core.DispatchRecord, error
 }
 
 func (r *Reader) telegramReceiptRows(ctx context.Context, supplierRef string) ([]purchaseReceiptSummaryRow, error) {
-	return r.telegramReceiptRowsLimited(ctx, supplierRef, 0)
+	return r.telegramReceiptRowsFiltered(ctx, supplierRef, time.Time{}, time.Time{})
 }
 
 func (r *Reader) telegramReceiptRowsLimited(ctx context.Context, supplierRef string, limit int) ([]purchaseReceiptSummaryRow, error) {
+	return r.telegramReceiptRowsFilteredLimited(ctx, supplierRef, time.Time{}, time.Time{}, limit)
+}
+
+func (r *Reader) telegramReceiptRowsFiltered(ctx context.Context, supplierRef string, from, to time.Time) ([]purchaseReceiptSummaryRow, error) {
+	return r.telegramReceiptRowsFilteredLimited(ctx, supplierRef, from, to, 0)
+}
+
+func (r *Reader) pendingTelegramReceiptRows(ctx context.Context, limit int) ([]purchaseReceiptSummaryRow, error) {
 	limit = clampLimit(limit, 0, 1000)
 	query := `
 		SELECT
@@ -776,12 +888,85 @@ func (r *Reader) telegramReceiptRowsLimited(ctx context.Context, supplierRef str
 		FROM ` + "`tabPurchase Receipt`" + ` pr
 		LEFT JOIN ` + "`tabPurchase Receipt Item`" + ` pri ON pri.parent = pr.name AND pri.idx = 1
 		WHERE pr.supplier_delivery_note LIKE 'TG:%'
-		  AND (? = '' OR pr.supplier = ?)
+		  AND pr.docstatus = 0
 		ORDER BY pr.name DESC`
 	if limit > 0 {
 		query += "\n\t\tLIMIT ?"
 	}
-	args := []interface{}{strings.TrimSpace(supplierRef), strings.TrimSpace(supplierRef)}
+	args := []interface{}{}
+	if limit > 0 {
+		args = append(args, limit)
+	}
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]purchaseReceiptSummaryRow, 0, 64)
+	for rows.Next() {
+		var row purchaseReceiptSummaryRow
+		if err := rows.Scan(
+			&row.Name,
+			&row.Supplier,
+			&row.SupplierName,
+			&row.DocStatus,
+			&row.Status,
+			&row.TotalQty,
+			&row.PostingDate,
+			&row.SupplierDeliveryNote,
+			&row.Remarks,
+			&row.Currency,
+			&row.ItemCode,
+			&row.ItemName,
+			&row.UOM,
+			&row.Amount,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
+func (r *Reader) telegramReceiptRowsFilteredLimited(ctx context.Context, supplierRef string, from, to time.Time, limit int) ([]purchaseReceiptSummaryRow, error) {
+	limit = clampLimit(limit, 0, 1000)
+	fromDate := formatArchiveDate(from)
+	toDate := formatArchiveDate(to)
+	query := `
+		SELECT
+			pr.name,
+			pr.supplier,
+			COALESCE(pr.supplier_name, ''),
+			pr.docstatus,
+			COALESCE(pr.status, ''),
+			COALESCE(pr.total_qty, 0),
+			COALESCE(CAST(pr.posting_date AS CHAR), ''),
+			COALESCE(pr.supplier_delivery_note, ''),
+			COALESCE(pr.remarks, ''),
+			COALESCE(pr.currency, ''),
+			COALESCE(pri.item_code, ''),
+			COALESCE(pri.item_name, ''),
+			COALESCE(pri.uom, ''),
+			COALESCE(pri.amount, 0)
+		FROM ` + "`tabPurchase Receipt`" + ` pr
+		LEFT JOIN ` + "`tabPurchase Receipt Item`" + ` pri ON pri.parent = pr.name AND pri.idx = 1
+		WHERE pr.supplier_delivery_note LIKE 'TG:%'
+		  AND (? = '' OR pr.supplier = ?)
+		  AND (? = '' OR pr.posting_date >= ?)
+		  AND (? = '' OR pr.posting_date <= ?)
+		ORDER BY pr.name DESC`
+	if limit > 0 {
+		query += "\n\t\tLIMIT ?"
+	}
+	args := []interface{}{
+		strings.TrimSpace(supplierRef),
+		strings.TrimSpace(supplierRef),
+		fromDate,
+		fromDate,
+		toDate,
+		toDate,
+	}
 	if limit > 0 {
 		args = append(args, limit)
 	}
@@ -818,10 +1003,18 @@ func (r *Reader) telegramReceiptRowsLimited(ctx context.Context, supplierRef str
 }
 
 func (r *Reader) deliveryNoteRows(ctx context.Context, customerRef string) ([]deliveryNoteSummaryRow, error) {
-	return r.deliveryNoteRowsLimited(ctx, customerRef, 0)
+	return r.deliveryNoteRowsFiltered(ctx, customerRef, time.Time{}, time.Time{})
 }
 
 func (r *Reader) deliveryNoteRowsLimited(ctx context.Context, customerRef string, limit int) ([]deliveryNoteSummaryRow, error) {
+	return r.deliveryNoteRowsFilteredLimited(ctx, customerRef, time.Time{}, time.Time{}, limit)
+}
+
+func (r *Reader) deliveryNoteRowsFiltered(ctx context.Context, customerRef string, from, to time.Time) ([]deliveryNoteSummaryRow, error) {
+	return r.deliveryNoteRowsFilteredLimited(ctx, customerRef, from, to, 0)
+}
+
+func (r *Reader) pendingDeliveryNoteRows(ctx context.Context, limit int) ([]deliveryNoteSummaryRow, error) {
 	limit = clampLimit(limit, 0, 1000)
 	query := `
 		SELECT
@@ -840,12 +1033,88 @@ func (r *Reader) deliveryNoteRowsLimited(ctx context.Context, customerRef string
 			COALESCE(dn.accord_customer_state, 0)
 		FROM ` + "`tabDelivery Note`" + ` dn
 		LEFT JOIN ` + "`tabDelivery Note Item`" + ` dni ON dni.parent = dn.name AND dni.idx = 1
-		WHERE (? = '' OR dn.customer = ?)
+		WHERE dn.docstatus = 1
+		  AND COALESCE(dn.accord_flow_state, 0) = ?
+		  AND COALESCE(dn.accord_customer_state, 0) NOT IN (?, ?, ?)
 		ORDER BY dn.name DESC`
 	if limit > 0 {
 		query += "\n\t\tLIMIT ?"
 	}
-	args := []interface{}{strings.TrimSpace(customerRef), strings.TrimSpace(customerRef)}
+	args := []interface{}{
+		deliveryFlowStateSubmittedDB,
+		customerStateRejectedDB,
+		customerStateConfirmedDB,
+		customerStatePartialDB,
+	}
+	if limit > 0 {
+		args = append(args, limit)
+	}
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]deliveryNoteSummaryRow, 0, 64)
+	for rows.Next() {
+		var row deliveryNoteSummaryRow
+		if err := rows.Scan(
+			&row.Name,
+			&row.Customer,
+			&row.CustomerName,
+			&row.DocStatus,
+			&row.Modified,
+			&row.Qty,
+			&row.ReturnedQty,
+			&row.CustomerReason,
+			&row.ItemCode,
+			&row.ItemName,
+			&row.UOM,
+			&row.AccordFlowState,
+			&row.AccordCustomerState,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
+func (r *Reader) deliveryNoteRowsFilteredLimited(ctx context.Context, customerRef string, from, to time.Time, limit int) ([]deliveryNoteSummaryRow, error) {
+	limit = clampLimit(limit, 0, 1000)
+	fromDateTime, toExclusiveDateTime := formatArchiveDateTimeRange(from, to)
+	query := `
+		SELECT
+			dn.name,
+			dn.customer,
+			COALESCE(dn.customer_name, ''),
+			dn.docstatus,
+			COALESCE(CAST(dn.modified AS CHAR), ''),
+			COALESCE(dn.total_qty, 0),
+			COALESCE(dni.returned_qty, 0),
+			COALESCE(dn.accord_customer_reason, ''),
+			COALESCE(dni.item_code, ''),
+			COALESCE(dni.item_name, ''),
+			COALESCE(dni.uom, ''),
+			COALESCE(dn.accord_flow_state, 0),
+			COALESCE(dn.accord_customer_state, 0)
+		FROM ` + "`tabDelivery Note`" + ` dn
+		LEFT JOIN ` + "`tabDelivery Note Item`" + ` dni ON dni.parent = dn.name AND dni.idx = 1
+		WHERE (? = '' OR dn.customer = ?)
+		  AND (? = '' OR dn.modified >= ?)
+		  AND (? = '' OR dn.modified < ?)
+		ORDER BY dn.name DESC`
+	if limit > 0 {
+		query += "\n\t\tLIMIT ?"
+	}
+	args := []interface{}{
+		strings.TrimSpace(customerRef),
+		strings.TrimSpace(customerRef),
+		fromDateTime,
+		fromDateTime,
+		toExclusiveDateTime,
+		toExclusiveDateTime,
+	}
 	if limit > 0 {
 		args = append(args, limit)
 	}
@@ -1186,6 +1455,90 @@ func deliveryNoteDecisionQuantities(row deliveryNoteSummaryRow, status string) (
 	default:
 		return 0, 0
 	}
+}
+
+func normalizeArchiveKind(kind string) string {
+	switch strings.TrimSpace(strings.ToLower(kind)) {
+	case "received", "returned":
+		return strings.TrimSpace(strings.ToLower(kind))
+	default:
+		return "sent"
+	}
+}
+
+func normalizeArchivePeriod(period string) string {
+	switch strings.TrimSpace(strings.ToLower(period)) {
+	case "daily", "monthly", "custom":
+		return strings.TrimSpace(strings.ToLower(period))
+	default:
+		return "yearly"
+	}
+}
+
+func archiveIncludesRecord(kind string, record core.DispatchRecord, status string) bool {
+	switch kind {
+	case "received":
+		return record.RecordType == "purchase_receipt" && (status == "accepted" || status == "partial")
+	case "returned":
+		return status == "partial" || status == "rejected" || status == "cancelled"
+	default:
+		return record.RecordType == "delivery_note"
+	}
+}
+
+func buildArchiveSummary(kind string, records []core.DispatchRecord) core.WerkaArchiveSummary {
+	totals := make(map[string]float64)
+	for _, record := range records {
+		uom := strings.TrimSpace(record.UOM)
+		if uom == "" {
+			uom = "Nos"
+		}
+		totals[uom] += archiveMetricQty(kind, record)
+	}
+	items := make([]core.ArchiveTotalByUOM, 0, len(totals))
+	for uom, qty := range totals {
+		items = append(items, core.ArchiveTotalByUOM{UOM: uom, Qty: qty})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return strings.ToLower(items[i].UOM) < strings.ToLower(items[j].UOM)
+	})
+	return core.WerkaArchiveSummary{
+		RecordCount: len(records),
+		TotalsByUOM: items,
+	}
+}
+
+func archiveMetricQty(kind string, record core.DispatchRecord) float64 {
+	switch kind {
+	case "received":
+		if record.AcceptedQty > 0 {
+			return record.AcceptedQty
+		}
+		return record.SentQty
+	case "returned":
+		return floatMax(record.SentQty-record.AcceptedQty, 0)
+	default:
+		return record.SentQty
+	}
+}
+
+func formatArchiveDate(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.Format("2006-01-02")
+}
+
+func formatArchiveDateTimeRange(from, to time.Time) (string, string) {
+	fromValue := ""
+	if !from.IsZero() {
+		fromValue = from.Format("2006-01-02") + " 00:00:00"
+	}
+	toValue := ""
+	if !to.IsZero() {
+		toValue = to.AddDate(0, 0, 1).Format("2006-01-02") + " 00:00:00"
+	}
+	return fromValue, toValue
 }
 
 func clampLimit(value, fallback, max int) int {

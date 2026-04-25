@@ -119,8 +119,11 @@ type DirectoryReader interface {
 	SearchWerkaCustomerItemsPage(ctx context.Context, customerRef, query string, limit, offset int) ([]SupplierItem, error)
 	SearchWerkaCustomerItemOptionsPage(ctx context.Context, query string, limit, offset int) ([]CustomerItemOption, error)
 	WerkaSummary(ctx context.Context) (WerkaHomeSummary, error)
+	WerkaPending(ctx context.Context, limit int) ([]DispatchRecord, error)
 	SupplierSummary(ctx context.Context, supplierRef string) (SupplierHomeSummary, error)
+	SupplierHistory(ctx context.Context, supplierRef string) ([]DispatchRecord, error)
 	CustomerSummary(ctx context.Context, customerRef string) (CustomerHomeSummary, error)
+	WerkaArchive(ctx context.Context, kind, period string, from, to time.Time) (WerkaArchiveResponse, error)
 }
 
 type ERPAuthenticator struct {
@@ -425,6 +428,9 @@ func (a *ERPAuthenticator) inferRole(code string) (PrincipalRole, error) {
 }
 
 func (a *ERPAuthenticator) SupplierHistory(ctx context.Context, principal Principal) ([]DispatchRecord, error) {
+	if a.reader != nil {
+		return a.reader.SupplierHistory(ctx, principal.Ref)
+	}
 	items, err := a.collectSupplierPurchaseReceipts(ctx, principal.Ref)
 	if err != nil {
 		return nil, err
@@ -548,6 +554,9 @@ func (a *ERPAuthenticator) SupplierStatusDetails(ctx context.Context, principal 
 }
 
 func (a *ERPAuthenticator) WerkaPending(ctx context.Context, limit int) ([]DispatchRecord, error) {
+	if a.reader != nil {
+		return a.reader.WerkaPending(ctx, limit)
+	}
 	items, err := a.erp.ListPendingPurchaseReceipts(ctx, a.baseURL, a.apiKey, a.apiSecret, limit)
 	if err != nil {
 		return nil, err
@@ -781,6 +790,13 @@ func (a *ERPAuthenticator) WerkaHistory(ctx context.Context) ([]DispatchRecord, 
 		return a.reader.WerkaHistory(ctx)
 	}
 	return a.collectWerkaHistoryRecords(ctx)
+}
+
+func (a *ERPAuthenticator) WerkaArchive(ctx context.Context, kind, period string, from, to time.Time) (WerkaArchiveResponse, error) {
+	if a.reader != nil {
+		return a.reader.WerkaArchive(ctx, kind, period, from, to)
+	}
+	return WerkaArchiveResponse{}, fmt.Errorf("direct ERP DB read is required for archive")
 }
 
 func (a *ERPAuthenticator) collectWerkaHistoryRecords(ctx context.Context) ([]DispatchRecord, error) {

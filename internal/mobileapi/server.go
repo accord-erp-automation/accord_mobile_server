@@ -1,6 +1,7 @@
 package mobileapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -79,6 +80,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/mobile/werka/status-details", s.handleWerkaStatusDetails)
 	mux.HandleFunc("/v1/mobile/werka/pending", s.handleWerkaPending)
 	mux.HandleFunc("/v1/mobile/werka/history", s.handleWerkaHistory)
+	mux.HandleFunc("/v1/mobile/werka/notifications", s.handleWerkaNotifications)
+	mux.HandleFunc("/v1/mobile/werka/archive", s.handleWerkaArchive)
+	mux.HandleFunc("/v1/mobile/werka/archive/pdf", s.handleWerkaArchivePDF)
 	mux.HandleFunc("/v1/mobile/werka/confirm", s.handleWerkaConfirm)
 	mux.HandleFunc("/v1/mobile/admin/settings", s.handleAdminSettings)
 	mux.HandleFunc("/v1/mobile/admin/suppliers", s.handleAdminSuppliers)
@@ -862,8 +866,9 @@ func (s *Server) handleWerkaPending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items, err := s.auth.WerkaPending(r.Context(), 20)
+	items, err := s.auth.WerkaPending(r.Context(), 0)
 	if err != nil {
+		log.Printf("werka pending failed: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "pending fetch failed"})
 		return
 	}
@@ -1312,6 +1317,199 @@ func (s *Server) handleWerkaHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) handleWerkaNotifications(w http.ResponseWriter, r *http.Request) {
+	s.handleWerkaHistory(w, r)
+}
+
+func (s *Server) handleWerkaArchive(w http.ResponseWriter, r *http.Request) {
+	principal, ok := s.authorize(w, r)
+	if !ok {
+		return
+	}
+	if err := requireRole(principal, RoleWerka); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+
+	data, err := s.loadWerkaArchive(r)
+	if err != nil {
+		log.Printf("werka archive failed: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "werka archive failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, data)
+}
+
+func (s *Server) handleWerkaArchivePDF(w http.ResponseWriter, r *http.Request) {
+	principal, ok := s.authorize(w, r)
+	if !ok {
+		return
+	}
+	if err := requireRole(principal, RoleWerka); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+
+	data, err := s.loadWerkaArchive(r)
+	if err != nil {
+		log.Printf("werka archive pdf failed: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "werka archive pdf failed"})
+		return
+	}
+	filename := fmt.Sprintf("werka-%s-%s.pdf", data.Kind, data.Period)
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	_, _ = w.Write(buildArchivePDF(data))
+}
+
+func (s *Server) loadWerkaArchive(r *http.Request) (WerkaArchiveResponse, error) {
+	query := r.URL.Query()
+	from, err := parseArchiveDate(query.Get("from"))
+	if err != nil {
+		return WerkaArchiveResponse{}, err
+	}
+	to, err := parseArchiveDate(query.Get("to"))
+	if err != nil {
+		return WerkaArchiveResponse{}, err
+	}
+	return s.auth.WerkaArchive(
+		r.Context(),
+		strings.TrimSpace(query.Get("kind")),
+		strings.TrimSpace(query.Get("period")),
+		from,
+		to,
+	)
+}
+
+func parseArchiveDate(raw string) (time.Time, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return time.Time{}, nil
+	}
+	value, err := time.Parse("2006-01-02", trimmed)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid archive date %q", trimmed)
+	}
+	return value, nil
+}
+
+func buildArchivePDF(data WerkaArchiveResponse) []byte {
+	lines := []string{
+		"Werka Archive Report",
+		fmt.Sprintf("Kind: %s", data.Kind),
+		fmt.Sprintf("Period: %s", data.Period),
+		fmt.Sprintf("From: %s", emptyDash(data.From)),
+		fmt.Sprintf("To: %s", emptyDash(data.To)),
+		fmt.Sprintf("Records: %d", data.Summary.RecordCount),
+	}
+	if len(data.Summary.TotalsByUOM) > 0 {
+		lines = append(lines, "Totals:")
+		for _, total := range data.Summary.TotalsByUOM {
+			lines = append(lines, fmt.Sprintf("  %s: %.4g", total.UOM, total.Qty))
+		}
+	}
+	lines = append(lines, "", "Date                 Type              Party                         Item                 Sent        Accepted    Status")
+	for _, item := range data.Items {
+		lines = append(lines, fmt.Sprintf(
+			"%-19s  %-16s  %-28s  %-20s  %10.4g  %10.4g  %s",
+			item.CreatedLabel,
+			item.RecordType,
+			item.SupplierName,
+			item.ItemCode,
+			item.SentQty,
+			item.AcceptedQty,
+			item.Status,
+		))
+	}
+
+	const linesPerPage = 46
+	pageCount := (len(lines) + linesPerPage - 1) / linesPerPage
+	if pageCount == 0 {
+		pageCount = 1
+	}
+
+	objectCount := 3 + pageCount*2
+	objects := make([]string, objectCount+1)
+	kids := make([]string, 0, pageCount)
+	objects[1] = "<< /Type /Catalog /Pages 2 0 R >>"
+	objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>"
+	for page := 0; page < pageCount; page++ {
+		pageID := 4 + page*2
+		contentID := pageID + 1
+		start := page * linesPerPage
+		end := start + linesPerPage
+		if end > len(lines) {
+			end = len(lines)
+		}
+		stream := buildPDFTextStream(lines[start:end])
+		objects[pageID] = fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 3 0 R >> >> /Contents %d 0 R >>", contentID)
+		objects[contentID] = fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(stream), stream)
+		kids = append(kids, fmt.Sprintf("%d 0 R", pageID))
+	}
+	objects[2] = fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", strings.Join(kids, " "), pageCount)
+
+	var out bytes.Buffer
+	out.WriteString("%PDF-1.4\n")
+	offsets := make([]int, objectCount+1)
+	for id := 1; id <= objectCount; id++ {
+		offsets[id] = out.Len()
+		fmt.Fprintf(&out, "%d 0 obj\n%s\nendobj\n", id, objects[id])
+	}
+	xrefOffset := out.Len()
+	fmt.Fprintf(&out, "xref\n0 %d\n", objectCount+1)
+	out.WriteString("0000000000 65535 f \n")
+	for id := 1; id <= objectCount; id++ {
+		fmt.Fprintf(&out, "%010d 00000 n \n", offsets[id])
+	}
+	fmt.Fprintf(&out, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", objectCount+1, xrefOffset)
+	return out.Bytes()
+}
+
+func buildPDFTextStream(lines []string) string {
+	var stream strings.Builder
+	stream.WriteString("BT\n/F1 8 Tf\n36 555 Td\n11 TL\n")
+	for _, line := range lines {
+		stream.WriteString("(")
+		stream.WriteString(escapePDFText(line))
+		stream.WriteString(") Tj\nT*\n")
+	}
+	stream.WriteString("ET")
+	return stream.String()
+}
+
+func escapePDFText(value string) string {
+	value = strings.TrimSpace(value)
+	var escaped strings.Builder
+	count := 0
+	for _, r := range value {
+		if count >= 132 {
+			break
+		}
+		count++
+		switch r {
+		case '\\', '(', ')':
+			escaped.WriteByte('\\')
+			escaped.WriteRune(r)
+		case '\n', '\r', '\t':
+			escaped.WriteByte(' ')
+		default:
+			if r >= 32 && r <= 126 {
+				escaped.WriteRune(r)
+			} else {
+				escaped.WriteByte('?')
+			}
+		}
+	}
+	return escaped.String()
+}
+
+func emptyDash(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "-"
+	}
+	return strings.TrimSpace(value)
 }
 
 func (s *Server) handleWerkaConfirm(w http.ResponseWriter, r *http.Request) {

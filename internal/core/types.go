@@ -155,6 +155,25 @@ type WerkaStatusBreakdownEntry struct {
 	UOM              string  `json:"uom"`
 }
 
+type ArchiveTotalByUOM struct {
+	UOM string  `json:"uom"`
+	Qty float64 `json:"qty"`
+}
+
+type WerkaArchiveSummary struct {
+	RecordCount int                 `json:"record_count"`
+	TotalsByUOM []ArchiveTotalByUOM `json:"totals_by_uom"`
+}
+
+type WerkaArchiveResponse struct {
+	Kind    string              `json:"kind"`
+	Period  string              `json:"period"`
+	From    string              `json:"from,omitempty"`
+	To      string              `json:"to,omitempty"`
+	Summary WerkaArchiveSummary `json:"summary"`
+	Items   []DispatchRecord    `json:"items"`
+}
+
 type CreateDispatchRequest struct {
 	ItemCode string  `json:"item_code"`
 	Qty      float64 `json:"qty"`

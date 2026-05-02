@@ -55,6 +55,36 @@ func (a *ERPAuthenticator) AdminSuppliers(ctx context.Context, limit int) ([]Adm
 	return a.adminSuppliersWithOptions(ctx, limit, false)
 }
 
+func (a *ERPAuthenticator) AdminSuppliersPage(ctx context.Context, limit, offset int) ([]AdminSupplier, error) {
+	items, err := a.adminSupplierDirectoryEntriesPage(ctx, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	states, err := a.adminSupplierStates()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]AdminSupplier, 0, len(items))
+	for _, item := range items {
+		state := states[strings.TrimSpace(item.Ref)]
+		if state.Removed {
+			continue
+		}
+
+		adminItem, err := a.buildAdminSupplier(erpnext.Supplier{
+			ID:    item.Ref,
+			Name:  item.Name,
+			Phone: item.Phone,
+		}, state)
+		if err != nil {
+			continue
+		}
+		result = append(result, adminItem)
+	}
+	return result, nil
+}
+
 func (a *ERPAuthenticator) AdminInactiveSuppliers(ctx context.Context, limit int) ([]AdminSupplier, error) {
 	items, err := a.adminSupplierDirectoryEntries(ctx, limit)
 	if err != nil {
@@ -477,6 +507,30 @@ func (a *ERPAuthenticator) AdminCustomers(ctx context.Context, limit int) ([]Cus
 	if err != nil {
 		return nil, err
 	}
+	result := make([]CustomerDirectoryEntry, 0, len(items))
+	for _, item := range items {
+		state, err := a.adminSupplierState(item.Ref)
+		if err != nil {
+			return nil, err
+		}
+		if state.Removed {
+			continue
+		}
+		result = append(result, CustomerDirectoryEntry{
+			Ref:   item.Ref,
+			Name:  item.Name,
+			Phone: item.Phone,
+		})
+	}
+	return result, nil
+}
+
+func (a *ERPAuthenticator) AdminCustomersPage(ctx context.Context, limit, offset int) ([]CustomerDirectoryEntry, error) {
+	items, err := a.adminCustomerDirectoryEntriesPage(ctx, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+
 	result := make([]CustomerDirectoryEntry, 0, len(items))
 	for _, item := range items {
 		state, err := a.adminSupplierState(item.Ref)

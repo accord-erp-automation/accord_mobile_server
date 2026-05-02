@@ -86,7 +86,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/mobile/werka/confirm", s.handleWerkaConfirm)
 	mux.HandleFunc("/v1/mobile/admin/settings", s.handleAdminSettings)
 	mux.HandleFunc("/v1/mobile/admin/suppliers", s.handleAdminSuppliers)
+	mux.HandleFunc("/v1/mobile/admin/suppliers/list", s.handleAdminSupplierList)
 	mux.HandleFunc("/v1/mobile/admin/customers", s.handleAdminCustomers)
+	mux.HandleFunc("/v1/mobile/admin/customers/list", s.handleAdminCustomerList)
 	mux.HandleFunc("/v1/mobile/admin/customers/detail", s.handleAdminCustomerDetail)
 	mux.HandleFunc("/v1/mobile/admin/customers/phone", s.handleAdminCustomerPhone)
 	mux.HandleFunc("/v1/mobile/admin/customers/code/regenerate", s.handleAdminCustomerCodeRegenerate)
@@ -1637,6 +1639,30 @@ func (s *Server) handleAdminSuppliers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 }
 
+func (s *Server) handleAdminSupplierList(w http.ResponseWriter, r *http.Request) {
+	principal, ok := s.authorize(w, r)
+	if !ok {
+		return
+	}
+	if err := requireRole(principal, RoleAdmin); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	limit := optionalSearchLimit(r, 20, 50)
+	offset := optionalSearchOffset(r)
+	items, err := s.auth.AdminSuppliersPage(r.Context(), limit, offset)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "suppliers page failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
 func (s *Server) handleAdminCustomers(w http.ResponseWriter, r *http.Request) {
 	principal, ok := s.authorize(w, r)
 	if !ok {
@@ -1671,6 +1697,30 @@ func (s *Server) handleAdminCustomers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) handleAdminCustomerList(w http.ResponseWriter, r *http.Request) {
+	principal, ok := s.authorize(w, r)
+	if !ok {
+		return
+	}
+	if err := requireRole(principal, RoleAdmin); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	limit := optionalSearchLimit(r, 20, 50)
+	offset := optionalSearchOffset(r)
+	items, err := s.auth.AdminCustomersPage(r.Context(), limit, offset)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "customers page failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
 }
 
 func (s *Server) handleAdminCustomerDetail(w http.ResponseWriter, r *http.Request) {

@@ -828,6 +828,13 @@ func TestServerAdminSupplierManagementFlow(t *testing.T) {
 		&fakeERPClient{
 			suppliers: []erpnext.Supplier{
 				{ID: "SUP-001", Name: "Abdulloh", Phone: "+998901234567"},
+				{ID: "SUP-002", Name: "Begzod", Phone: "+998901234568"},
+				{ID: "SUP-003", Name: "Dilshod", Phone: "+998901234569"},
+			},
+			customers: []erpnext.Customer{
+				{ID: "CUS-001", Name: "Customer One", Phone: "+998901111111"},
+				{ID: "CUS-002", Name: "Customer Two", Phone: "+998901111112"},
+				{ID: "CUS-003", Name: "Customer Three", Phone: "+998901111113"},
 			},
 			items: []erpnext.Item{
 				{Code: "ITEM-001", Name: "Rice", UOM: "Kg"},
@@ -865,6 +872,44 @@ func TestServerAdminSupplierManagementFlow(t *testing.T) {
 	}
 	if page.Summary.TotalSuppliers == 0 || len(page.Suppliers) == 0 {
 		t.Fatalf("unexpected suppliers page payload: %+v", page)
+	}
+
+	supplierListReq := httptest.NewRequest(
+		http.MethodGet,
+		"/v1/mobile/admin/suppliers/list?limit=2&offset=1",
+		nil,
+	)
+	supplierListReq.Header.Set("Authorization", "Bearer "+token)
+	supplierListResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(supplierListResp, supplierListReq)
+	if supplierListResp.Code != http.StatusOK {
+		t.Fatalf("unexpected supplier list status: %d", supplierListResp.Code)
+	}
+	var supplierList []AdminSupplier
+	if err := json.NewDecoder(supplierListResp.Body).Decode(&supplierList); err != nil {
+		t.Fatalf("failed to decode supplier list: %v", err)
+	}
+	if len(supplierList) != 2 {
+		t.Fatalf("unexpected supplier list length: %d", len(supplierList))
+	}
+
+	customerListReq := httptest.NewRequest(
+		http.MethodGet,
+		"/v1/mobile/admin/customers/list?limit=2&offset=1",
+		nil,
+	)
+	customerListReq.Header.Set("Authorization", "Bearer "+token)
+	customerListResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(customerListResp, customerListReq)
+	if customerListResp.Code != http.StatusOK {
+		t.Fatalf("unexpected customer list status: %d", customerListResp.Code)
+	}
+	var customerList []CustomerDirectoryEntry
+	if err := json.NewDecoder(customerListResp.Body).Decode(&customerList); err != nil {
+		t.Fatalf("failed to decode customer list: %v", err)
+	}
+	if len(customerList) != 2 {
+		t.Fatalf("unexpected customer list length: %d", len(customerList))
 	}
 
 	summaryReq := httptest.NewRequest(http.MethodGet, "/v1/mobile/admin/suppliers/summary", nil)

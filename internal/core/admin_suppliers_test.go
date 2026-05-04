@@ -42,6 +42,27 @@ func (s *adminSuppliersERPStub) SearchItems(ctx context.Context, baseURL, apiKey
 	return nil, nil
 }
 
+func (s *adminSuppliersERPStub) SearchItemsPage(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit, offset int) ([]erpnext.Item, error) {
+	if s.searchItems != nil {
+		items, err := s.searchItems(ctx, baseURL, apiKey, apiSecret, query, limit)
+		if err != nil {
+			return nil, err
+		}
+		if offset < 0 {
+			offset = 0
+		}
+		if offset >= len(items) {
+			return []erpnext.Item{}, nil
+		}
+		end := offset + limit
+		if end > len(items) {
+			end = len(items)
+		}
+		return append([]erpnext.Item(nil), items[offset:end]...), nil
+	}
+	return nil, nil
+}
+
 func (s *adminSuppliersERPStub) SearchCustomers(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]erpnext.Customer, error) {
 	if s.searchCustomers != nil {
 		return s.searchCustomers(ctx, baseURL, apiKey, apiSecret, query, limit)
@@ -120,6 +141,10 @@ func (s *adminSuppliersERPStub) GetItemsByCodes(ctx context.Context, baseURL, ap
 
 func (s *adminSuppliersERPStub) CreateItem(ctx context.Context, baseURL, apiKey, apiSecret string, input erpnext.CreateItemInput) (erpnext.Item, error) {
 	return erpnext.Item{}, nil
+}
+
+func (s *adminSuppliersERPStub) UpdateItemGroup(ctx context.Context, baseURL, apiKey, apiSecret, itemCode, itemGroup string) error {
+	return nil
 }
 
 func (s *adminSuppliersERPStub) EnsureSupplier(ctx context.Context, baseURL, apiKey, apiSecret string, input erpnext.CreateSupplierInput) (erpnext.Supplier, error) {

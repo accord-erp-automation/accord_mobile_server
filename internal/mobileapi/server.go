@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"mobile_server/internal/core"
 )
 
 type Server struct {
@@ -109,6 +111,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/mobile/admin/suppliers/restore", s.handleAdminSupplierRestore)
 	mux.HandleFunc("/v1/mobile/admin/item-groups", s.handleAdminItemGroups)
 	mux.HandleFunc("/v1/mobile/admin/items", s.handleAdminItems)
+	mux.HandleFunc("/v1/mobile/admin/items/bulk-move-group", s.handleAdminItemsBulkMoveGroup)
 	mux.HandleFunc("/v1/mobile/admin/activity", s.handleAdminActivity)
 	mux.HandleFunc("/v1/mobile/admin/werka/code/regenerate", s.handleAdminWerkaCodeRegenerate)
 	return mux
@@ -2286,7 +2289,9 @@ func (s *Server) handleAdminItems(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		query := strings.TrimSpace(r.URL.Query().Get("q"))
-		items, err := s.auth.AdminSearchItems(r.Context(), query, 30)
+		limit := parsePositiveInt(r.URL.Query().Get("limit"), 50)
+		offset := parseNonNegativeInt(r.URL.Query().Get("offset"), 0)
+		items, err := s.auth.AdminItemsPage(r.Context(), query, limit, offset)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "admin items failed"})
 			return
@@ -2330,6 +2335,34 @@ func (s *Server) handleAdminItemGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, groups)
+}
+
+func (s *Server) handleAdminItemsBulkMoveGroup(w http.ResponseWriter, r *http.Request) {
+	principal, ok := s.authorize(w, r)
+	if !ok {
+		return
+	}
+	if err := requireRole(principal, RoleAdmin); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req core.AdminBulkMoveItemsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+
+	result, err := s.auth.AdminMoveItemsToGroup(r.Context(), req.ItemCodes, req.ItemGroup)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleAdminActivity(w http.ResponseWriter, r *http.Request) {
@@ -2416,4 +2449,20 @@ func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func parsePositiveInt(raw string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func parseNonNegativeInt(raw string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value < 0 {
+		return fallback
+	}
+	return value
 }

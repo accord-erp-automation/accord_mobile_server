@@ -174,7 +174,25 @@ func (a *ERPAuthenticator) AdminSupplierDetail(ctx context.Context, ref string) 
 }
 
 func (a *ERPAuthenticator) AdminSearchItems(ctx context.Context, query string, limit int) ([]SupplierItem, error) {
-	items, err := a.erp.SearchItems(ctx, a.baseURL, a.apiKey, a.apiSecret, query, limit)
+	items, err := a.AdminItemsPage(ctx, query, limit, 0)
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (a *ERPAuthenticator) AdminItemsPage(ctx context.Context, query string, limit, offset int) ([]SupplierItem, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	items, err := a.erp.SearchItemsPage(ctx, a.baseURL, a.apiKey, a.apiSecret, query, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -320,6 +338,56 @@ func (a *ERPAuthenticator) AdminCreateItem(ctx context.Context, code, name, uom,
 		return SupplierItem{}, fmt.Errorf("item create returned empty result")
 	}
 	return items[0], nil
+}
+
+func (a *ERPAuthenticator) AdminMoveItemsToGroup(ctx context.Context, itemCodes []string, itemGroup string) (AdminItemGroupBulkMoveResult, error) {
+	normalizedCodes := normalizeItemCodes(itemCodes)
+	if len(normalizedCodes) == 0 {
+		return AdminItemGroupBulkMoveResult{}, fmt.Errorf("item codes are required")
+	}
+
+	trimmedGroup := strings.TrimSpace(itemGroup)
+	if trimmedGroup == "" {
+		return AdminItemGroupBulkMoveResult{}, fmt.Errorf("item group is required")
+	}
+
+	const concurrency = 8
+	sem := make(chan struct{}, concurrency)
+	type itemResult struct {
+		code string
+		err  error
+	}
+	results := make(chan itemResult, len(normalizedCodes))
+
+	for _, code := range normalizedCodes {
+		code := code
+		sem <- struct{}{}
+		go func() {
+			defer func() { <-sem }()
+			err := a.erp.UpdateItemGroup(ctx, a.baseURL, a.apiKey, a.apiSecret, code, trimmedGroup)
+			results <- itemResult{code: code, err: err}
+		}()
+	}
+
+	updated := make([]string, 0, len(normalizedCodes))
+	failed := make([]string, 0)
+	for range normalizedCodes {
+		result := <-results
+		if result.err != nil {
+			failed = append(failed, result.code)
+			continue
+		}
+		updated = append(updated, result.code)
+	}
+
+	return AdminItemGroupBulkMoveResult{
+		ItemGroup:        trimmedGroup,
+		RequestedCount:   len(normalizedCodes),
+		UpdatedCount:     len(updated),
+		FailedCount:      len(failed),
+		UpdatedItemCodes: updated,
+		FailedItemCodes:  failed,
+	}, nil
 }
 
 func dedupeItemGroups(groups []string) []string {

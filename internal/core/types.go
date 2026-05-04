@@ -354,3 +354,17 @@ type AdminCreateItemRequest struct {
 	UOM       string `json:"uom"`
 	ItemGroup string `json:"item_group"`
 }
+
+type AdminBulkMoveItemsRequest struct {
+	ItemCodes []string `json:"item_codes"`
+	ItemGroup string   `json:"item_group"`
+}
+
+type AdminItemGroupBulkMoveResult struct {
+	ItemGroup        string   `json:"item_group"`
+	RequestedCount   int      `json:"requested_count"`
+	UpdatedCount     int      `json:"updated_count"`
+	FailedCount      int      `json:"failed_count"`
+	UpdatedItemCodes []string `json:"updated_item_codes,omitempty"`
+	FailedItemCodes  []string `json:"failed_item_codes,omitempty"`
+}

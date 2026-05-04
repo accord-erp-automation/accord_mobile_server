@@ -69,6 +69,24 @@ func (f *fakeERPClient) SearchItems(_ context.Context, _, _, _, query string, li
 	return filterFakeItems(f.items, query, limit), nil
 }
 
+func (f *fakeERPClient) SearchItemsPage(_ context.Context, _, _, _, query string, limit, offset int) ([]erpnext.Item, error) {
+	items := filterFakeItems(f.items, query, len(f.items))
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset >= len(items) {
+		return []erpnext.Item{}, nil
+	}
+	end := offset + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	return append([]erpnext.Item(nil), items[offset:end]...), nil
+}
+
 func (f *fakeERPClient) SearchCustomers(_ context.Context, _, _, _, query string, limit int) ([]erpnext.Customer, error) {
 	if limit <= 0 || limit > len(f.customers) {
 		limit = len(f.customers)
@@ -148,6 +166,10 @@ func (f *fakeERPClient) CreateItem(_ context.Context, _, _, _ string, input erpn
 	}
 	f.items = append(f.items, item)
 	return item, nil
+}
+
+func (f *fakeERPClient) UpdateItemGroup(_ context.Context, _, _, _, _, _ string) error {
+	return nil
 }
 
 func (f *fakeERPClient) SearchWarehouses(_ context.Context, _, _, _, _ string, _ int) ([]erpnext.Warehouse, error) {

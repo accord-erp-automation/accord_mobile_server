@@ -53,6 +53,7 @@ const (
 
 type ERPClient interface {
 	SearchItems(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]erpnext.Item, error)
+	SearchItemsPage(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit, offset int) ([]erpnext.Item, error)
 	SearchCustomers(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]erpnext.Customer, error)
 	GetCustomer(ctx context.Context, baseURL, apiKey, apiSecret, id string) (erpnext.Customer, error)
 	EnsureCustomer(ctx context.Context, baseURL, apiKey, apiSecret string, input erpnext.CreateCustomerInput) (erpnext.Customer, error)
@@ -64,6 +65,7 @@ type ERPClient interface {
 	UpdateSupplierContact(ctx context.Context, baseURL, apiKey, apiSecret, id, phone, details string) error
 	GetItemsByCodes(ctx context.Context, baseURL, apiKey, apiSecret string, itemCodes []string) ([]erpnext.Item, error)
 	CreateItem(ctx context.Context, baseURL, apiKey, apiSecret string, input erpnext.CreateItemInput) (erpnext.Item, error)
+	UpdateItemGroup(ctx context.Context, baseURL, apiKey, apiSecret, itemCode, itemGroup string) error
 	EnsureSupplier(ctx context.Context, baseURL, apiKey, apiSecret string, input erpnext.CreateSupplierInput) (erpnext.Supplier, error)
 	SearchCompanies(ctx context.Context, baseURL, apiKey, apiSecret string, limit int) ([]erpnext.Company, error)
 	SearchItemGroups(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]erpnext.ItemGroup, error)

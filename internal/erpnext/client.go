@@ -189,7 +189,7 @@ func (c *Client) SearchItems(ctx context.Context, baseURL, apiKey, apiSecret, qu
 	seen := make(map[string]struct{})
 	items := make([]Item, 0, limit)
 	for _, variant := range buildSearchQueryVariants(query) {
-		rows, err := c.searchItemsByQuery(ctx, normalized, apiKey, apiSecret, variant, limit)
+		rows, err := c.searchItemsByQueryPage(ctx, normalized, apiKey, apiSecret, variant, limit, 0)
 		if err != nil {
 			return nil, err
 		}
@@ -205,6 +205,14 @@ func (c *Client) SearchItems(ctx context.Context, baseURL, apiKey, apiSecret, qu
 		}
 	}
 	return items, nil
+}
+
+func (c *Client) SearchItemsPage(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit, offset int) ([]Item, error) {
+	normalized, err := normalizeBaseURL(baseURL)
+	if err != nil {
+		return nil, err
+	}
+	return c.searchItemsByQueryPage(ctx, normalized, apiKey, apiSecret, query, limit, offset)
 }
 
 func (c *Client) CreateItem(ctx context.Context, baseURL, apiKey, apiSecret string, input CreateItemInput) (Item, error) {
@@ -272,6 +280,25 @@ func (c *Client) UpdateItemStandardRate(ctx context.Context, baseURL, apiKey, ap
 	}, nil)
 }
 
+func (c *Client) UpdateItemGroup(ctx context.Context, baseURL, apiKey, apiSecret, itemCode, itemGroup string) error {
+	normalized, err := normalizeBaseURL(baseURL)
+	if err != nil {
+		return err
+	}
+	code := strings.TrimSpace(itemCode)
+	group := strings.TrimSpace(itemGroup)
+	if code == "" {
+		return fmt.Errorf("item code is required")
+	}
+	if group == "" {
+		return fmt.Errorf("item group is required")
+	}
+	endpoint := normalized + "/api/resource/Item/" + url.PathEscape(code)
+	return c.doJSONRequest(ctx, http.MethodPut, endpoint, apiKey, apiSecret, map[string]interface{}{
+		"item_group": group,
+	}, nil)
+}
+
 func (c *Client) UpsertItemBarcode(ctx context.Context, baseURL, apiKey, apiSecret, itemCode, barcode, uom string) error {
 	trimmedBarcode := strings.TrimSpace(barcode)
 	if trimmedBarcode == "" {
@@ -321,7 +348,7 @@ func isDuplicateBarcodeError(err error) bool {
 	return strings.Contains(message, "duplicate entry") && strings.Contains(message, "for key 'barcode'")
 }
 
-func (c *Client) searchItemsByQuery(ctx context.Context, normalized, apiKey, apiSecret, query string, limit int) ([]Item, error) {
+func (c *Client) searchItemsByQueryPage(ctx context.Context, normalized, apiKey, apiSecret, query string, limit, offset int) ([]Item, error) {
 	filtersJSON, _ := json.Marshal([][]interface{}{
 		{"disabled", "=", 0},
 		{"is_stock_item", "=", 1},
@@ -331,6 +358,10 @@ func (c *Client) searchItemsByQuery(ctx context.Context, normalized, apiKey, api
 	params.Set("fields", `["name","item_name","stock_uom"]`)
 	params.Set("filters", string(filtersJSON))
 	params.Set("limit_page_length", strconv.Itoa(limit))
+	if offset > 0 {
+		params.Set("limit_start", strconv.Itoa(offset))
+	}
+	params.Set("order_by", "item_name asc, name asc")
 
 	if trimmed := strings.TrimSpace(query); trimmed != "" {
 		like := "%" + strings.ReplaceAll(trimmed, "\"", "") + "%"

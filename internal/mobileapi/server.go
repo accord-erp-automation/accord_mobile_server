@@ -2297,7 +2297,7 @@ func (s *Server) handleAdminItems(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 			return
 		}
-		item, err := s.auth.AdminCreateItem(r.Context(), req.Code, req.Name, req.UOM)
+		item, err := s.auth.AdminCreateItem(r.Context(), req.Code, req.Name, req.UOM, req.ItemGroup)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "admin item create failed"})
 			return

@@ -270,11 +270,12 @@ func (a *ERPAuthenticator) AdminUnassignCustomerItem(ctx context.Context, ref, i
 	return a.AdminCustomerDetail(ctx, item.ID)
 }
 
-func (a *ERPAuthenticator) AdminCreateItem(ctx context.Context, code, name, uom string) (SupplierItem, error) {
+func (a *ERPAuthenticator) AdminCreateItem(ctx context.Context, code, name, uom, itemGroup string) (SupplierItem, error) {
 	item, err := a.erp.CreateItem(ctx, a.baseURL, a.apiKey, a.apiSecret, erpnext.CreateItemInput{
 		Code: strings.TrimSpace(code),
 		Name: strings.TrimSpace(name),
 		UOM:  strings.TrimSpace(uom),
+		ItemGroup: strings.TrimSpace(itemGroup),
 	})
 	if err != nil {
 		return SupplierItem{}, err

@@ -66,6 +66,7 @@ type ERPClient interface {
 	CreateItem(ctx context.Context, baseURL, apiKey, apiSecret string, input erpnext.CreateItemInput) (erpnext.Item, error)
 	EnsureSupplier(ctx context.Context, baseURL, apiKey, apiSecret string, input erpnext.CreateSupplierInput) (erpnext.Supplier, error)
 	SearchCompanies(ctx context.Context, baseURL, apiKey, apiSecret string, limit int) ([]erpnext.Company, error)
+	SearchItemGroups(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]erpnext.ItemGroup, error)
 	SearchWarehouses(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]erpnext.Warehouse, error)
 	SearchSupplierItems(ctx context.Context, baseURL, apiKey, apiSecret, supplier, query string, limit int) ([]erpnext.Item, error)
 	ListAssignedSupplierItems(ctx context.Context, baseURL, apiKey, apiSecret, supplier string, limit int) ([]erpnext.Item, error)
@@ -111,6 +112,7 @@ type ERPClient interface {
 type DirectoryReader interface {
 	AdminAPIAuth(ctx context.Context, username string) (apiKey, apiSecret string, err error)
 	UpdateAdminAPIAuth(ctx context.Context, username, apiKey, apiSecret string) error
+	AdminItemGroupsPage(ctx context.Context, query string, limit, offset int) ([]string, error)
 	WerkaHome(ctx context.Context, pendingLimit int) (WerkaHomeData, error)
 	WerkaStatusBreakdown(ctx context.Context, kind string) ([]WerkaStatusBreakdownEntry, error)
 	WerkaStatusDetails(ctx context.Context, kind, supplierRef string) ([]DispatchRecord, error)

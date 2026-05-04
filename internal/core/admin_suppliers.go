@@ -181,6 +181,37 @@ func (a *ERPAuthenticator) AdminSearchItems(ctx context.Context, query string, l
 	return a.mapSupplierItems(ctx, items)
 }
 
+func (a *ERPAuthenticator) AdminItemGroups(ctx context.Context, query string, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	if a.reader != nil {
+		groups, err := a.reader.AdminItemGroupsPage(ctx, query, limit, 0)
+		if err == nil && len(groups) > 0 {
+			return dedupeItemGroups(groups), nil
+		}
+	}
+
+	items, err := a.erp.SearchItemGroups(ctx, a.baseURL, a.apiKey, a.apiSecret, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]string, 0, len(items)+1)
+	for _, item := range items {
+		if trimmed := strings.TrimSpace(item.Name); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	if len(result) == 0 && strings.TrimSpace(query) == "" {
+		return []string{"All Item Groups"}, nil
+	}
+	return dedupeItemGroups(result), nil
+}
+
 func (a *ERPAuthenticator) AdminAssignedSupplierItems(ctx context.Context, ref string, limit int) ([]SupplierItem, error) {
 	item, _, err := a.findSupplierForAdmin(ctx, ref)
 	if err != nil {
@@ -272,9 +303,9 @@ func (a *ERPAuthenticator) AdminUnassignCustomerItem(ctx context.Context, ref, i
 
 func (a *ERPAuthenticator) AdminCreateItem(ctx context.Context, code, name, uom, itemGroup string) (SupplierItem, error) {
 	item, err := a.erp.CreateItem(ctx, a.baseURL, a.apiKey, a.apiSecret, erpnext.CreateItemInput{
-		Code: strings.TrimSpace(code),
-		Name: strings.TrimSpace(name),
-		UOM:  strings.TrimSpace(uom),
+		Code:      strings.TrimSpace(code),
+		Name:      strings.TrimSpace(name),
+		UOM:       strings.TrimSpace(uom),
 		ItemGroup: strings.TrimSpace(itemGroup),
 	})
 	if err != nil {
@@ -289,6 +320,24 @@ func (a *ERPAuthenticator) AdminCreateItem(ctx context.Context, code, name, uom,
 		return SupplierItem{}, fmt.Errorf("item create returned empty result")
 	}
 	return items[0], nil
+}
+
+func dedupeItemGroups(groups []string) []string {
+	seen := make(map[string]struct{}, len(groups))
+	result := make([]string, 0, len(groups))
+	for _, group := range groups {
+		trimmed := strings.TrimSpace(group)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
 }
 
 func (a *ERPAuthenticator) AdminUpdateSupplierItems(ctx context.Context, ref string, itemCodes []string) (AdminSupplierDetail, error) {

@@ -13,6 +13,7 @@ type adminSuppliersERPStub struct {
 	searchItems                 func(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]erpnext.Item, error)
 	searchCustomers             func(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]erpnext.Customer, error)
 	searchSuppliers             func(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]erpnext.Supplier, error)
+	searchItemGroups            func(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]erpnext.ItemGroup, error)
 	getSupplier                 func(ctx context.Context, baseURL, apiKey, apiSecret, id string) (erpnext.Supplier, error)
 	getCustomer                 func(ctx context.Context, baseURL, apiKey, apiSecret, id string) (erpnext.Customer, error)
 	getItemCustomerAssignment   func(ctx context.Context, baseURL, apiKey, apiSecret, itemCode string) (erpnext.ItemCustomerAssignment, error)
@@ -51,6 +52,13 @@ func (s *adminSuppliersERPStub) SearchCustomers(ctx context.Context, baseURL, ap
 func (s *adminSuppliersERPStub) SearchCompanies(ctx context.Context, baseURL, apiKey, apiSecret string, limit int) ([]erpnext.Company, error) {
 	if s.searchCompanies != nil {
 		return s.searchCompanies(ctx, baseURL, apiKey, apiSecret, limit)
+	}
+	return nil, nil
+}
+
+func (s *adminSuppliersERPStub) SearchItemGroups(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]erpnext.ItemGroup, error) {
+	if s.searchItemGroups != nil {
+		return s.searchItemGroups(ctx, baseURL, apiKey, apiSecret, query, limit)
 	}
 	return nil, nil
 }

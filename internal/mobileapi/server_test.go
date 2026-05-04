@@ -94,6 +94,10 @@ func (f *fakeERPClient) SearchCompanies(_ context.Context, _, _, _ string, _ int
 	return []erpnext.Company{{Name: "accord"}}, nil
 }
 
+func (f *fakeERPClient) SearchItemGroups(_ context.Context, _, _, _, _ string, _ int) ([]erpnext.ItemGroup, error) {
+	return []erpnext.ItemGroup{{Name: "All Item Groups"}}, nil
+}
+
 func (f *fakeERPClient) GetCustomer(_ context.Context, _, _, _, id string) (erpnext.Customer, error) {
 	for _, item := range f.customers {
 		if item.ID == id {
@@ -1003,6 +1007,21 @@ func TestServerAdminSupplierManagementFlow(t *testing.T) {
 	server.Handler().ServeHTTP(createItemResp, createItemReq)
 	if createItemResp.Code != http.StatusOK {
 		t.Fatalf("unexpected item create status: %d", createItemResp.Code)
+	}
+
+	groupsReq := httptest.NewRequest(http.MethodGet, "/v1/mobile/admin/item-groups", nil)
+	groupsReq.Header.Set("Authorization", "Bearer "+token)
+	groupsResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(groupsResp, groupsReq)
+	if groupsResp.Code != http.StatusOK {
+		t.Fatalf("unexpected item groups status: %d", groupsResp.Code)
+	}
+	var groups []string
+	if err := json.NewDecoder(groupsResp.Body).Decode(&groups); err != nil {
+		t.Fatalf("failed to decode item groups: %v", err)
+	}
+	if len(groups) == 0 {
+		t.Fatalf("expected at least one item group")
 	}
 
 	removeReq := httptest.NewRequest(http.MethodDelete, "/v1/mobile/admin/suppliers/remove?ref=SUP-001", nil)

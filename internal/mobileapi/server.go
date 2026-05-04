@@ -107,6 +107,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/mobile/admin/suppliers/code/regenerate", s.handleAdminSupplierCodeRegenerate)
 	mux.HandleFunc("/v1/mobile/admin/suppliers/remove", s.handleAdminSupplierRemove)
 	mux.HandleFunc("/v1/mobile/admin/suppliers/restore", s.handleAdminSupplierRestore)
+	mux.HandleFunc("/v1/mobile/admin/item-groups", s.handleAdminItemGroups)
 	mux.HandleFunc("/v1/mobile/admin/items", s.handleAdminItems)
 	mux.HandleFunc("/v1/mobile/admin/activity", s.handleAdminActivity)
 	mux.HandleFunc("/v1/mobile/admin/werka/code/regenerate", s.handleAdminWerkaCodeRegenerate)
@@ -2306,6 +2307,29 @@ func (s *Server) handleAdminItems(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
+}
+
+func (s *Server) handleAdminItemGroups(w http.ResponseWriter, r *http.Request) {
+	principal, ok := s.authorize(w, r)
+	if !ok {
+		return
+	}
+	if err := requireRole(principal, RoleAdmin); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	groups, err := s.auth.AdminItemGroups(r.Context(), query, 100)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "admin item groups failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, groups)
 }
 
 func (s *Server) handleAdminActivity(w http.ResponseWriter, r *http.Request) {

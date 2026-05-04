@@ -54,6 +54,10 @@ type Company struct {
 	Name string
 }
 
+type ItemGroup struct {
+	Name string
+}
+
 type UOM struct {
 	Name string
 }
@@ -385,6 +389,29 @@ func (c *Client) SearchWarehouses(ctx context.Context, baseURL, apiKey, apiSecre
 		}
 	}
 	return warehouses, nil
+}
+
+func (c *Client) SearchItemGroups(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]ItemGroup, error) {
+	normalized, err := normalizeBaseURL(baseURL)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	links, err := c.searchLink(ctx, normalized, apiKey, apiSecret, "Item Group", query, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	groups := make([]ItemGroup, 0, len(links))
+	for _, item := range links {
+		if item != "" {
+			groups = append(groups, ItemGroup{Name: item})
+		}
+	}
+	return groups, nil
 }
 
 func (c *Client) SearchUOMs(ctx context.Context, baseURL, apiKey, apiSecret, query string, limit int) ([]UOM, error) {

@@ -126,3 +126,36 @@ func (r *Reader) AdminCustomerByRef(ctx context.Context, ref string) (core.Custo
 	return item, nil
 }
 
+func (r *Reader) AdminItemGroupsPage(ctx context.Context, query string, limit, offset int) ([]string, error) {
+	limit = clampLimit(limit, 50, 500)
+	like := likePattern(query)
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT name
+		FROM `+"`tabItem Group`"+`
+		WHERE disabled = 0
+		  AND (? = '' OR name LIKE ? ESCAPE '\\' OR item_group_name LIKE ? ESCAPE '\\')
+		ORDER BY name ASC
+		LIMIT ? OFFSET ?`,
+		strings.TrimSpace(query),
+		like,
+		like,
+		limit,
+		max(offset, 0),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]string, 0, limit)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		if trimmed := strings.TrimSpace(name); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result, rows.Err()
+}

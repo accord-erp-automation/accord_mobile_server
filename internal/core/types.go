@@ -71,6 +71,7 @@ type SupplierItem struct {
 	Name      string `json:"name"`
 	UOM       string `json:"uom"`
 	Warehouse string `json:"warehouse"`
+	ItemGroup string `json:"item_group,omitempty"`
 }
 
 type SupplierDirectoryEntry struct {

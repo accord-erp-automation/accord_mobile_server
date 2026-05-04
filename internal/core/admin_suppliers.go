@@ -1088,6 +1088,7 @@ func (a *ERPAuthenticator) mapSupplierItems(ctx context.Context, items []erpnext
 			Name:      item.Name,
 			UOM:       item.UOM,
 			Warehouse: warehouse,
+			ItemGroup: item.ItemGroup,
 		})
 	}
 	return result, nil

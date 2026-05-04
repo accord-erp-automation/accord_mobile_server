@@ -240,6 +240,29 @@ func TestSearchSupplierItems(t *testing.T) {
 	}
 }
 
+func TestSearchItemsPageIncludesItemGroup(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resource/Item" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"name":"ITEM-001","item_name":"Rice","stock_uom":"Kg","item_group":"Foods"}]}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(&http.Client{Timeout: 3 * time.Second})
+	items, err := client.SearchItemsPage(context.Background(), server.URL, "key", "secret", "", 20, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %+v", items)
+	}
+	if items[0].ItemGroup != "Foods" {
+		t.Fatalf("expected item group Foods, got %+v", items[0])
+	}
+}
+
 func TestCreateItemUsesProvidedItemGroup(t *testing.T) {
 	var body map[string]interface{}
 

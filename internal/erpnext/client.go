@@ -21,9 +21,10 @@ type AuthInfo struct {
 }
 
 type Item struct {
-	Code string
-	Name string
-	UOM  string
+	Code      string
+	Name      string
+	UOM       string
+	ItemGroup string
 }
 
 type ItemBarcode struct {
@@ -355,7 +356,7 @@ func (c *Client) searchItemsByQueryPage(ctx context.Context, normalized, apiKey,
 	})
 
 	params := url.Values{}
-	params.Set("fields", `["name","item_name","stock_uom"]`)
+	params.Set("fields", `["name","item_name","stock_uom","item_group"]`)
 	params.Set("filters", string(filtersJSON))
 	params.Set("limit_page_length", strconv.Itoa(limit))
 	if offset > 0 {
@@ -375,9 +376,10 @@ func (c *Client) searchItemsByQueryPage(ctx context.Context, normalized, apiKey,
 	endpoint := normalized + "/api/resource/Item?" + params.Encode()
 	var payload struct {
 		Data []struct {
-			Name     string `json:"name"`
-			ItemName string `json:"item_name"`
-			StockUOM string `json:"stock_uom"`
+			Name      string `json:"name"`
+			ItemName  string `json:"item_name"`
+			StockUOM  string `json:"stock_uom"`
+			ItemGroup string `json:"item_group"`
 		} `json:"data"`
 	}
 	if err := c.doJSON(ctx, endpoint, apiKey, apiSecret, &payload); err != nil {
@@ -391,9 +393,10 @@ func (c *Client) searchItemsByQueryPage(ctx context.Context, normalized, apiKey,
 			displayName = row.Name
 		}
 		items = append(items, Item{
-			Code: row.Name,
-			Name: displayName,
-			UOM:  row.StockUOM,
+			Code:      row.Name,
+			Name:      displayName,
+			UOM:       row.StockUOM,
+			ItemGroup: row.ItemGroup,
 		})
 	}
 	return items, nil

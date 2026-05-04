@@ -160,9 +160,10 @@ func (f *fakeERPClient) GetItemsByCodes(_ context.Context, _, _, _ string, itemC
 
 func (f *fakeERPClient) CreateItem(_ context.Context, _, _, _ string, input erpnext.CreateItemInput) (erpnext.Item, error) {
 	item := erpnext.Item{
-		Code: input.Code,
-		Name: input.Name,
-		UOM:  input.UOM,
+		Code:      input.Code,
+		Name:      input.Name,
+		UOM:       input.UOM,
+		ItemGroup: input.ItemGroup,
 	}
 	f.items = append(f.items, item)
 	return item, nil
@@ -863,8 +864,8 @@ func TestServerAdminSupplierManagementFlow(t *testing.T) {
 				{ID: "CUS-003", Name: "Customer Three", Phone: "+998901111113"},
 			},
 			items: []erpnext.Item{
-				{Code: "ITEM-001", Name: "Rice", UOM: "Kg"},
-				{Code: "ITEM-002", Name: "Oil", UOM: "L"},
+				{Code: "ITEM-001", Name: "Rice", UOM: "Kg", ItemGroup: "Foods"},
+				{Code: "ITEM-002", Name: "Oil", UOM: "L", ItemGroup: "Goods"},
 			},
 		},
 		"http://localhost:8000",
@@ -1038,12 +1039,34 @@ func TestServerAdminSupplierManagementFlow(t *testing.T) {
 	if groupsResp.Code != http.StatusOK {
 		t.Fatalf("unexpected item groups status: %d", groupsResp.Code)
 	}
-	var groups []string
-	if err := json.NewDecoder(groupsResp.Body).Decode(&groups); err != nil {
+	var itemGroups []string
+	if err := json.NewDecoder(groupsResp.Body).Decode(&itemGroups); err != nil {
 		t.Fatalf("failed to decode item groups: %v", err)
 	}
-	if len(groups) == 0 {
+	if len(itemGroups) == 0 {
 		t.Fatalf("expected at least one item group")
+	}
+
+	adminItemsReq := httptest.NewRequest(
+		http.MethodGet,
+		"/v1/mobile/admin/items?limit=10&offset=0",
+		nil,
+	)
+	adminItemsReq.Header.Set("Authorization", "Bearer "+token)
+	adminItemsResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(adminItemsResp, adminItemsReq)
+	if adminItemsResp.Code != http.StatusOK {
+		t.Fatalf("unexpected admin items status: %d", adminItemsResp.Code)
+	}
+	var adminItems []map[string]any
+	if err := json.NewDecoder(adminItemsResp.Body).Decode(&adminItems); err != nil {
+		t.Fatalf("failed to decode admin items: %v", err)
+	}
+	if len(adminItems) == 0 {
+		t.Fatal("expected admin items payload")
+	}
+	if _, ok := adminItems[0]["item_group"]; !ok {
+		t.Fatalf("expected item_group in admin items response: %+v", adminItems[0])
 	}
 
 	removeReq := httptest.NewRequest(http.MethodDelete, "/v1/mobile/admin/suppliers/remove?ref=SUP-001", nil)

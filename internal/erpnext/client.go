@@ -136,7 +136,8 @@ type DeliveryNoteDraft struct {
 }
 
 type Client struct {
-	httpClient *http.Client
+	httpClient         *http.Client
+	credentialProvider func(context.Context) (string, string, error)
 
 	deliveryNoteStateFieldsMu      sync.RWMutex
 	deliveryNoteStateFieldsEnsured bool
@@ -144,6 +145,10 @@ type Client struct {
 
 func NewClient(httpClient *http.Client) *Client {
 	return &Client{httpClient: httpClient}
+}
+
+func (c *Client) SetCredentialProvider(provider func(context.Context) (string, string, error)) {
+	c.credentialProvider = provider
 }
 
 func (c *Client) ValidateCredentials(ctx context.Context, baseURL, apiKey, apiSecret string) (AuthInfo, error) {
@@ -814,6 +819,14 @@ func (c *Client) doJSON(ctx context.Context, endpoint, apiKey, apiSecret string,
 }
 
 func (c *Client) doJSONRequest(ctx context.Context, method, endpoint, apiKey, apiSecret string, body interface{}, out interface{}) error {
+	if c.credentialProvider != nil {
+		providerKey, providerSecret, err := c.credentialProvider(ctx)
+		if err == nil && strings.TrimSpace(providerKey) != "" && strings.TrimSpace(providerSecret) != "" {
+			apiKey = providerKey
+			apiSecret = providerSecret
+		}
+	}
+
 	var bodyReader io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)

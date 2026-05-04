@@ -109,6 +109,8 @@ type ERPClient interface {
 }
 
 type DirectoryReader interface {
+	AdminAPIAuth(ctx context.Context, username string) (apiKey, apiSecret string, err error)
+	UpdateAdminAPIAuth(ctx context.Context, username, apiKey, apiSecret string) error
 	WerkaHome(ctx context.Context, pendingLimit int) (WerkaHomeData, error)
 	WerkaStatusBreakdown(ctx context.Context, kind string) ([]WerkaStatusBreakdownEntry, error)
 	WerkaStatusDetails(ctx context.Context, kind, supplierRef string) ([]DispatchRecord, error)
@@ -2287,10 +2289,22 @@ func (a *ERPAuthenticator) AdminSettings() AdminSettings {
 	if defaultUOM == "" {
 		defaultUOM = "Kg"
 	}
+	apiKey := strings.TrimSpace(a.apiKey)
+	apiSecret := strings.TrimSpace(a.apiSecret)
+	if a.reader != nil {
+		if currentKey, currentSecret, err := a.reader.AdminAPIAuth(context.Background(), "Administrator"); err == nil {
+			if strings.TrimSpace(currentKey) != "" {
+				apiKey = strings.TrimSpace(currentKey)
+			}
+			if strings.TrimSpace(currentSecret) != "" {
+				apiSecret = strings.TrimSpace(currentSecret)
+			}
+		}
+	}
 	return AdminSettings{
 		ERPURL:                 a.baseURL,
-		ERPAPIKey:              a.apiKey,
-		ERPAPISecret:           a.apiSecret,
+		ERPAPIKey:              apiKey,
+		ERPAPISecret:           apiSecret,
 		DefaultTargetWarehouse: a.defaultWarehouse,
 		DefaultUOM:             defaultUOM,
 		WerkaPhone:             a.werkaPhone,
@@ -2305,8 +2319,6 @@ func (a *ERPAuthenticator) AdminSettings() AdminSettings {
 
 func (a *ERPAuthenticator) UpdateAdminSettings(input AdminSettings) error {
 	a.baseURL = strings.TrimSpace(input.ERPURL)
-	a.apiKey = strings.TrimSpace(input.ERPAPIKey)
-	a.apiSecret = strings.TrimSpace(input.ERPAPISecret)
 	a.defaultWarehouse = strings.TrimSpace(input.DefaultTargetWarehouse)
 	a.defaultUOM = strings.TrimSpace(input.DefaultUOM)
 	if a.defaultUOM == "" {
@@ -2319,11 +2331,38 @@ func (a *ERPAuthenticator) UpdateAdminSettings(input AdminSettings) error {
 	a.adminPhone = strings.TrimSpace(input.AdminPhone)
 	a.adminName = strings.TrimSpace(input.AdminName)
 
+	apiKey := strings.TrimSpace(input.ERPAPIKey)
+	apiSecret := strings.TrimSpace(input.ERPAPISecret)
+	if a.reader != nil {
+		if apiKey == "" || apiSecret == "" {
+			currentKey, currentSecret, err := a.reader.AdminAPIAuth(context.Background(), "Administrator")
+			if err != nil {
+				return err
+			}
+			if apiKey == "" {
+				apiKey = strings.TrimSpace(currentKey)
+			}
+			if apiSecret == "" {
+				apiSecret = strings.TrimSpace(currentSecret)
+			}
+		}
+		if err := a.reader.UpdateAdminAPIAuth(context.Background(), "Administrator", apiKey, apiSecret); err != nil {
+			return err
+		}
+	} else {
+		if apiKey == "" {
+			apiKey = strings.TrimSpace(a.apiKey)
+		}
+		if apiSecret == "" {
+			apiSecret = strings.TrimSpace(a.apiSecret)
+		}
+	}
+	a.apiKey = apiKey
+	a.apiSecret = apiSecret
+
 	if a.envPersister != nil {
 		return a.envPersister.Upsert(map[string]string{
 			"ERP_URL":                      a.baseURL,
-			"ERP_API_KEY":                  a.apiKey,
-			"ERP_API_SECRET":               a.apiSecret,
 			"ERP_DEFAULT_TARGET_WAREHOUSE": a.defaultWarehouse,
 			"ERP_DEFAULT_UOM":              a.defaultUOM,
 			"WERKA_PHONE":                  a.werkaPhone,

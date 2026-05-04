@@ -23,6 +23,7 @@ type Config struct {
 	Name             string
 	User             string
 	Password         string
+	EncryptionKey    string
 	DefaultWarehouse string
 	MaxOpenConns     int
 	MaxIdleConns     int
@@ -30,13 +31,15 @@ type Config struct {
 }
 
 type siteConfig struct {
-	DBName     string `json:"db_name"`
-	DBPassword string `json:"db_password"`
-	DBType     string `json:"db_type"`
+	DBName        string `json:"db_name"`
+	DBPassword    string `json:"db_password"`
+	DBType        string `json:"db_type"`
+	EncryptionKey string `json:"encryption_key"`
 }
 
 type Reader struct {
 	db               *sql.DB
+	encryptionKey    string
 	defaultWarehouse string
 }
 
@@ -129,6 +132,7 @@ func ConfigFromSiteConfig(siteConfigPath, defaultWarehouse string) (Config, erro
 		Name:             name,
 		User:             name,
 		Password:         strings.TrimSpace(cfg.DBPassword),
+		EncryptionKey:    strings.TrimSpace(cfg.EncryptionKey),
 		DefaultWarehouse: strings.TrimSpace(defaultWarehouse),
 		MaxOpenConns:     12,
 		MaxIdleConns:     12,
@@ -181,6 +185,7 @@ func Open(cfg Config) (*Reader, error) {
 	}
 	return &Reader{
 		db:               db,
+		encryptionKey:    strings.TrimSpace(cfg.EncryptionKey),
 		defaultWarehouse: strings.TrimSpace(cfg.DefaultWarehouse),
 	}, nil
 }

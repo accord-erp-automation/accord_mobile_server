@@ -46,6 +46,39 @@ func TestValidateCredentialsSuccess(t *testing.T) {
 	}
 }
 
+func TestCredentialProviderOverridesCallSiteCredentials(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth != "token liveKey:liveSecret" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		switch r.URL.Path {
+		case "/api/method/frappe.auth.get_logged_user":
+			_, _ = w.Write([]byte(`{"message":"user@example.com"}`))
+		case "/api/method/frappe.core.doctype.user.user.get_roles":
+			_, _ = w.Write([]byte(`{"message":["Stock User"]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(&http.Client{Timeout: 3 * time.Second})
+	client.SetCredentialProvider(func(context.Context) (string, string, error) {
+		return "liveKey", "liveSecret", nil
+	})
+
+	result, err := client.ValidateCredentials(context.Background(), server.URL, "staleKey", "staleSecret")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Username != "user@example.com" {
+		t.Fatalf("unexpected username: %q", result.Username)
+	}
+}
+
 func TestValidateCredentialsFallbackRoles(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

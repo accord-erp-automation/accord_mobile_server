@@ -51,6 +51,13 @@ func main() {
 	}
 
 	erpClient := erpnext.NewClient(&http.Client{Timeout: cfg.RequestTimeout})
+	var directReader *erpdb.Reader
+	erpClient.SetCredentialProvider(func(ctx context.Context) (string, string, error) {
+		if directReader == nil {
+			return "", "", nil
+		}
+		return directReader.AdminAPIAuth(ctx, "Administrator")
+	})
 	service := core.NewERPAuthenticator(
 		erpClient,
 		cfg.DefaultERPURL,
@@ -101,6 +108,7 @@ func main() {
 				if err != nil {
 					log.Printf("direct DB read disabled: %v", err)
 				} else {
+					directReader = reader
 					service.SetDirectoryReader(reader)
 					log.Printf("direct DB read enabled for Werka pickers via %s:%d/%s", dbCfg.Host, dbCfg.Port, dbCfg.Name)
 				}

@@ -110,7 +110,7 @@ func main() {
 				} else {
 					directReader = reader
 					service.SetDirectoryReader(reader)
-					log.Printf("direct DB read enabled for Werka pickers via %s:%d/%s", dbCfg.Host, dbCfg.Port, dbCfg.Name)
+					log.Printf("direct DB read enabled for Werka pickers and stock entry barcode lookup via %s:%d/%s", dbCfg.Host, dbCfg.Port, dbCfg.Name)
 				}
 			}
 		} else {

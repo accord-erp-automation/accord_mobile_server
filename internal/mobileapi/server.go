@@ -53,6 +53,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/mobile/profile/avatar", s.handleProfileAvatar)
 	mux.HandleFunc("/v1/mobile/profile/avatar/view", s.handleProfileAvatarView)
 	mux.HandleFunc("/v1/mobile/push/token", s.handlePushToken)
+	mux.HandleFunc("/v1/mobile/stock-entry/lookup", s.handleStockEntryLookup)
 	mux.HandleFunc("/v1/mobile/customer/summary", s.handleCustomerSummary)
 	mux.HandleFunc("/v1/mobile/customer/history", s.handleCustomerHistory)
 	mux.HandleFunc("/v1/mobile/customer/status-details", s.handleCustomerStatusDetails)
